@@ -10,8 +10,8 @@
 
 use strict;
 use IO::File;
-use POSIX qw(strftime setsid);
-use vars qw(%Pids $Verbose);
+use POSIX qw(uname strftime setsid);
+use vars qw(%Pids $Verbose $OSVer);
 
 ################################################################################
 
@@ -76,6 +76,9 @@ foreach my $opt (@ARGV)
    $monitors{$mon} = [ @args ];
    }
 harikari(2, "No monitors specified") if (! keys(%monitors));
+
+# Get OS version
+$OSVer = (POSIX::uname())[2];
 
 # Figure out if mapdev is installed
 my $mapdev = "";
@@ -144,7 +147,10 @@ if (defined($monitors{oar})
 while ((my $pid = wait()) != -1)
    {
    my $cmd = delete($Pids{$pid});
-   harikari(3, "\"$cmd\" failed") if ($?);
+
+   # mpstat returns duff exit codes on 2.5.1.  Sigh.
+   if (! ($cmd =~ /mpstat/ && $OSVer eq "5.5.1"))
+      { harikari(3, "\"$cmd\" failed") if ($?); }
    }
 exit(0);
 

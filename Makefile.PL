@@ -16,14 +16,16 @@ if (! grep(-x "$_/gnuplot", split(":", $ENV{PATH})))
         "StatsView won't work unless you have GNUPlot installed.\n",
         "A copy can be found in the gnuplot_src subdirectory\n\n");
    }
-my $hdr = `gnuplot 2>&1 <<EOF\nshow version\nEOF`;
-my ($ver) = $hdr =~ /version\s*([\d.]*)/;
-my ($plev) = $hdr =~ /patchlevel\s*(.*)/;
-if ($ver < 3.6 && $plev !~ /beta/)
+else
    {
-   warn("WARNING: Incorrect version of GNUPlot found\n",
-        "StatsView won't work unless you have GNUPlot beta 3.6 installed.\n",
+   my $hdr = `gnuplot 2>&1 <<EOF\nshow version\nEOF`;
+   my ($ver) = $hdr =~ /version\s*([\d.]*)/;
+   if ($ver < 3.7)
+      {
+      warn("WARNING: Incorrect version of GNUPlot found\n",
+           "StatsView won't work unless you have GNUPlot 3.7 installed.\n",
         "A copy can be found in the gnuplot_src subdirectory\n\n");
+      }
    }
 
 WriteMakefile(

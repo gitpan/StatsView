@@ -16,7 +16,7 @@ use StatsView::Graph;
 
 package main;
 use vars qw($VERSION $Main %Monitor $DatDir $SaveDir);
-$VERSION = "1.1";
+$VERSION = "1.2";
 
 ################################################################################
 

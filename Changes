@@ -1,6 +1,11 @@
 Revision history for StatsView
 ==============================
 
+1.2  Mon 9 Aug 1999
+-------------------
+Fixed bug with mpstat when run on single CPU machine
+Catered for incorrect exit code returned by mpstat on 2.5.1
+
 1.1  Tue 25 May 1999
 --------------------
 Added scrollable pane for instance selection
