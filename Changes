@@ -1,0 +1,17 @@
+Revision history for Perl script StatsView.
+
+0.1 beta  Tue Dec 16 1997
+Original version
+
+0.2-0.5 beta
+Various internal releases
+
+0.6 beta  Mon 7 Dec 1998
+First public release
+   Code under source control
+   Directory struture changes to source tree
+   Changes to StatsView::Graph interface to enable easier scripting   
+   Rudimentary documentation added
+   Integrated monitoring added
+   iost+ parser added
+   Various bugfixes
