@@ -1,8 +1,8 @@
-*** gplt_x11.c.orig	Wed Oct 28 21:07:29 1998
---- gplt_x11.c	Sat Nov 14 16:34:41 1998
+*** gplt_x11.c~	Fri Oct 15 17:04:50 1999
+--- gplt_x11.c	Tue Feb 27 13:18:53 2001
 ***************
-*** 745,750 ****
---- 745,753 ----
+*** 839,844 ****
+--- 839,847 ----
   plot_struct *plot;
   {
       int n, x, y, sw, sl, lt = 0, width, type, point, px, py;
@@ -13,8 +13,8 @@
       char *buffer, *str;
       enum JUSTIFY jmode;
 ***************
-*** 857,863 ****
---- 860,879 ----
+*** 951,957 ****
+--- 954,973 ----
   	/*   X11_linetype(type) - set line type  */
   	else if (*buffer == 'L') {
   	    sscanf(buffer, "L%4d", &lt);
@@ -36,8 +36,8 @@
   	    width = widths[lt] ? user_width * widths[lt] : user_width;
   	    if (dashes[lt][0]) {
 ***************
-*** 868,873 ****
---- 884,890 ----
+*** 962,967 ****
+--- 978,984 ----
   	    }
   	    XSetForeground(dpy, gc, colors[lt + 3]);
   	    XSetLineAttributes(dpy, gc, width, type, CapButt, JoinBevel);
@@ -46,8 +46,8 @@
   	/*   X11_point(number) - draw a point */
   	else if (*buffer == 'P') {
 ***************
-*** 1414,1423 ****
---- 1431,1447 ----
+*** 1523,1532 ****
+--- 1540,1556 ----
       "0", "42", "13", "44", "15", "4441", "42", "13"
   };
   
@@ -63,5 +63,5 @@
   };
 + #endif
   
-  void pr_dashes()
-  {
+  void
+  pr_dashes()

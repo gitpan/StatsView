@@ -17,7 +17,7 @@ use StatsView::Graph;
 package main;
 use vars qw($VERSION $Main %Monitor $DatDir $SaveDir
             $OpenFileTypes $SaveFileTypes);
-$VERSION = "1.3";
+$VERSION = "1.4";
 $OpenFileTypes =
    [
       [ All     => "*"       ],
@@ -73,7 +73,7 @@ my ($parent) = @_;
 my $msg = <<EOM;
 
                            StatsView version $VERSION
-                        Copyright (c) 2000 Alan Burlison
+                        Copyright 1998-2001 Alan Burlison
                             Alan.Burlison\@uk.sun.com
 
  You may distribute under the terms of either the GNU General Public License

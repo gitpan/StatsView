@@ -270,7 +270,7 @@ while (defined($line = $self->getline($sar)) && $line !~ /^Average/)
    if ($tstamp < $last_tstamp)
       {
       $D++;
-      my $tstamp = POSIX::mktime($s, $m, $h, $D, $M, $Y, 0, 0, -1);
+      $tstamp = POSIX::mktime($s, $m, $h, $D, $M, $Y, 0, 0, -1);
       }
 
    # If this is the first sample, store the start time
