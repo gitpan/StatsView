@@ -36,7 +36,7 @@ if (@l == 7)
       my @d = split(/\s+|:/, $_[0]);
       $d[1] = $StatsView::Graph::Vxstat::m2n{substr($d[1], 0, 3)};
       $d[6] -= 1900;
-      return(POSIX::mktime(@d[5,4,3,2,1,6]));
+      return(POSIX::mktime(@d[5,4,3,2,1,6], 0, 0, -1));
       };
    }
 elsif (@l == 9)
@@ -48,7 +48,7 @@ elsif (@l == 9)
       $d[3] -= 1900;
       if ($d[4] == 12) { $d[4] -= 12 if ($d[7] =~ /AM/i); }
       else { $d[4] += 12 if ($d[7] =~ /PM/i); }
-      return(POSIX::mktime(@d[6,5,4,1,2,3]));
+      return(POSIX::mktime(@d[6,5,4,1,2,3], 0, 0, -1));
       };
    }
 else

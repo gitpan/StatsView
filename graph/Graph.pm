@@ -6,7 +6,7 @@ use POSIX qw(strftime);
 
 package StatsView::Graph;
 use vars qw($VERSION @Constructors);
-$VERSION="1.14";
+$VERSION="1.15";
 
 ################################################################################
 # Terminology:
@@ -126,7 +126,8 @@ if (! $self->{tmpfile}{$cat})
       my $val = $sample->{value};
       if (@$val > 0)
          {
-         $out->print(strftime("%d/%m/%Y %T", gmtime($sample->{tstamp})), "\t",
+         $out->print(POSIX::strftime("%d/%m/%Y %T",
+                     localtime($sample->{tstamp})), "\t",
                      join("\t", @$val), "\n");
          $last_was_blank = 0;
          }
@@ -151,7 +152,7 @@ my $scale = $self->{plot_scale} eq "log" ? "logscale" : "nologscale";
 $self->{gnuplot}->print("reset\nset title '", $self->get_title(), "'\n",
                         "set data style lines\nset $scale y\n",
                         "set xdata time\nset timefmt '%d/%m/%Y %H:%M:%S'\n",
-                        "set xlabel 'Time'\nset format x '%H:%M'\n");
+                        "set xlabel 'Time'\nset format x '%H:%M:%S'\n");
 
 # Figure out how many types of data we have
 my %t;
@@ -175,9 +176,9 @@ if ($plot_type eq '%')
 
 # Generate the plot command
 $self->{gnuplot}->print("plot ['",
-        strftime("%d/%m/%Y %T", gmtime($self->{plot_start})),
+        POSIX::strftime("%d/%m/%Y %T", localtime($self->{plot_start})),
         "':'",
-        strftime("%d/%m/%Y %T", gmtime($self->{plot_finish})),
+        POSIX::strftime("%d/%m/%Y %T", localtime($self->{plot_finish})),
         "'] ");
 my $not_first = 0;
 foreach my $col (@$cols)
@@ -218,7 +219,8 @@ if (! $self->{tmpfile}{$cat})
          my $val = $sample->{value};
          if (@$val > 0)
             {
-            $out->print(strftime("%d/%m/%Y %T", gmtime($sample->{tstamp})),
+            $out->print(POSIX::strftime("%d/%m/%Y %T",
+                        localtime($sample->{tstamp})),
                         "\t", join("\t", @$val), "\n");
             $last_was_blank = 0;
             }
@@ -246,7 +248,7 @@ $self->{gnuplot}->print("reset\nset title '", $self->get_title(), "'\n",
                         "set data style lines\nset ylabel '$col'\n",
                         "set xdata time\nset timefmt '%d/%m/%Y %H:%M:%S'\n",
                         "set $scale y\nset rmargin 3\n",
-                        "set xlabel 'Time'\nset format x '%H:%M'\n");
+                        "set xlabel 'Time'\nset format x '%H:%M:%S'\n");
 
 if ($self->{coltype}{$col} eq '%')
    {
@@ -255,9 +257,9 @@ if ($self->{coltype}{$col} eq '%')
 
 # Generate the plot command
 $self->{gnuplot}->print("plot ['",
-        strftime("%d/%m/%Y %T", gmtime($self->{plot_start})),
+        POSIX::strftime("%d/%m/%Y %T", localtime($self->{plot_start})),
         "':'",
-        strftime("%d/%m/%Y %T", gmtime($self->{plot_finish})),
+        POSIX::strftime("%d/%m/%Y %T", localtime($self->{plot_finish})),
         "'] ");
 my $not_first = 0;
 foreach my $inst (@$insts)
@@ -337,7 +339,7 @@ if (! defined($self->{instance}))
       next if ($sample->{tstamp} < $start);
       last if ($sample->{tstamp} > $finish);
       $csv->printf("%s,$fmt\n",
-                   strftime("%d/%m/%Y %T", gmtime($sample->{tstamp})),
+                   POSIX::strftime("%d/%m/%Y %T", localtime($sample->{tstamp})),
                    @{$sample->{value}}[@indices]) if (@{$sample->{value}});
       }
    }
@@ -371,7 +373,7 @@ else
    $csv->print("Time,", join(",", @$insts), "\n");
    foreach my $tstamp (sort(keys(%data)))
       {
-      $csv->print(strftime("%d/%m/%Y %T", gmtime($tstamp)));
+      $csv->print(POSIX::strftime("%d/%m/%Y %T", localtime($tstamp)));
       foreach my $inst_name (@$insts)
          {
          my $value = $data{$tstamp}{$inst_name};
@@ -531,8 +533,8 @@ die("Invalid arguments " . join(", ", keys(%arg)) . "\n") if (keys(%arg));
 if (! $self->{gnuplot})
    {
    $self->{gnuplot} = IO::File->new("| exec gnuplot -title '" .
-#                                   $self->get_title() . "' 2>/dev/null")
-                                    $self->get_title() . "'")
+                                    $self->get_title() . "' >/dev/null 2>&1")
+#                                   $self->get_title() . "'")
       || die("Can't run gnuplot: $!\n");
    $self->{gnuplot}->autoflush(1);
    }
@@ -672,7 +674,7 @@ sub get_title($)
 my ($self) = @_;
 return($self->{title} . "  " .
        File::Basename::basename($self->{file}) . "  " .
-       strftime("%d/%m/%Y", gmtime($self->{start})));
+       POSIX::strftime("%d/%m/%Y", localtime($self->{start})));
 }
 
 ################################################################################
@@ -714,11 +716,11 @@ StatsView - Solaris performance data collection and graphing package
 
 StatsView::Graph is a package that was originally written for internal use
 within the Sun UK Performance Centre.  It allows the display of the output of
-the standard Solaris utilities sar, iostat and vmstat, as well as the output
-of vxstat if Veritas Volume Manager is in use.  It also supports the iost+
-utility (available as part of the CPAN Solaris::Kstat package), and the output
-of the Oracle monitoring provided by the sv script. The sv script is merely a
-GUI front-end around this pakage.
+the standard Solaris utilities sar, iostat, mpstat and vmstat, as well as the
+output of vxstat if Veritas Volume Manager is in use.  It also supports the
+iost+ utility (available as part of the CPAN Solaris::Kstat package), and the
+output of the Oracle monitoring provided by the sv script. The sv script is
+merely a GUI front-end around this pakage.
 
 =head1 PREREQUISITES
 
@@ -755,12 +757,13 @@ be the output of one of the following commands:
    Built-in Oracle monitoring - collected via sv
    sar                        - binary or text format
    vmstat                     - standard format
+   mpstat                     - standard format
    vxstat                     - Veritas VM statistics
 
-Note that iostat and vmstat don't put timestamps in their output, thus making
-it impossible to decide hown the data should be graphed.  To circumvent this
-problem it is necessary to add a header line to the start of the data files of
-the form:
+Note that iostat, mpstat and vmstat don't put timestamps in their output, thus
+making it impossible to decide hown the data should be graphed.  To circumvent
+this problem it is necessary to add a header line to the start of the data
+files of the form:
 
    Start: 01/01/1998 12:00:00 Interval: 10
 

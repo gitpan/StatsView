@@ -1,7 +1,7 @@
 ################################################################################
 
 use strict;
-use POSIX qw(mktime strftime);
+use POSIX qw(mktime);
 use StatsView::Graph;
 package StatsView::Graph::Iostat;
 @StatsView::Graph::Iostat::ISA = qw(StatsView::Graph);
@@ -61,7 +61,8 @@ my ($h, $m, $s) = split(/:/, $2);
 $M--;
 if ($Y >= 100) { $Y -= 1900; }
 elsif ($Y <= 50) { $Y += 100; }
-$self->{start} = POSIX::mktime($s, $m, $h, $D, $M, $Y) + $self->{interval};
+$self->{start} = POSIX::mktime($s, $m, $h, $D, $M, $Y, 0, 0, -1)
+               + $self->{interval};
 
 # Look for the first header line
 while (defined($line = $self->getline($iostat)) && $line =~ /^\s*$/) { }

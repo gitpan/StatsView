@@ -62,7 +62,8 @@ my ($h, $m, $s) = split(/:/, $2);
 $M--;
 if ($Y >= 100) { $Y -= 1900; }
 elsif ($Y <= 50) { $Y += 100; }
-$self->{start} = POSIX::mktime($s, $m, $h, $D, $M, $Y) + $self->{interval};
+$self->{start} = POSIX::mktime($s, $m, $h, $D, $M, $Y, 0, 0, -1)
+               + $self->{interval};
 
 # Look for the first header lines
 while (defined ($line1 = $self->getline($vmstat))

@@ -45,7 +45,7 @@ $line =~ /iost\+\ started\ on\
 my ($D, $M, $Y, $h, $m, $s, $host, $interval) = ($1, $2, $3, $4, $5, $6);
 $self->{interval} = $8;
 $M--; $Y -= 1900;
-my $last_t = POSIX::mktime($s, $m, $h, $D, $M, $Y);
+my $last_t = POSIX::mktime($s, $m, $h, $D, $M, $Y, 0, 0, -1);
 $self->{start} = $last_t + $self->{interval};
 
 # Define the column types - N = numeric, % = percentage
@@ -62,13 +62,13 @@ while (defined($line = $iost->getline()))
    # Look for the start of the next sample point (a timestamp)
    next if ($line !~ /^(\d\d):(\d\d):(\d\d)/);
    ($h, $m, $s) = ($1, $2, $3);
-   my $tstamp = POSIX::mktime($s, $m, $h, $D, $M, $Y);
+   my $tstamp = POSIX::mktime($s, $m, $h, $D, $M, $Y, 0, 0, -1);
 
    # Look for day rollover & save timestamp
    if ($tstamp < $last_t)
       {
       $D++;
-      $tstamp = POSIX::mktime($s, $m, $h, $D, $M, $Y);
+      $tstamp = POSIX::mktime($s, $m, $h, $D, $M, $Y, 0, 0, -1);
       }
    $last_t = $tstamp;
 

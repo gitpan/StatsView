@@ -7,6 +7,7 @@ use Tk;
 use Tk::Dialog;
 use Tk::FileSelect;
 use Tk::NoteBook;
+use Tk::Pane;
 use IO::Pipe;
 use Cwd qw(cwd fast_abs_path);
 use StatsView::Graph;
@@ -15,7 +16,7 @@ use StatsView::Graph;
 
 package main;
 use vars qw($VERSION $Main %Monitor $DatDir $SaveDir);
-$VERSION = "1.0";
+$VERSION = "1.1";
 
 ################################################################################
 
@@ -50,7 +51,7 @@ my ($parent) = @_;
 my $msg = <<EOM;
 
                            StatsView version $VERSION
-                        Copyright (c) 1998 Alan Burlison
+                        Copyright (c) 1999 Alan Burlison
                             Alan.Burlison\@uk.sun.com
 
  You may distribute under the terms of either the GNU General Public License
@@ -83,14 +84,18 @@ return($dialog);
 # Figure out how big a 2x2 grid is going to be for the given number of items
 # Returns ($cols, $rows)
 
-sub grid_size($)
+sub grid_size(@)
 {
-my ($items) = @_;
+my (@items) = @_;
 
-if ($items <= 4) { return ($items, 1); }
-my $cols = int(sqrt($items) + 0.5);
-$cols = 8 if ($cols > 8);
-return($cols, int(($items / $cols) + 0.5));
+# Work out the average length of an item;
+my $nitems = @items;
+my $avlen = 0;
+foreach my $i (@items) { $avlen += length($i); }
+$avlen /= $nitems;
+
+my $cols = int(sqrt($nitems * $avlen) / ($avlen / 1.5) + 0.5) || 1;
+return($cols, int(($nitems / $cols) + 0.5));
 }
 
 ################################################################################
@@ -388,8 +393,8 @@ $sub = sub
    elsif ($s + $min_diff > $f) { $d = $min_diff; $f = $s + $d }
    if ($f > $end) { $f = $end; $s = $end - $d };
    $$start = $s; $$finish = $f;
-   $start_lab = strftime("%d/%m/%Y %T", gmtime($$start));
-   $finish_lab = strftime("%d/%m/%Y %T", gmtime($$finish));
+   $start_lab = POSIX::strftime("%d/%m/%Y %T", localtime($$start));
+   $finish_lab = POSIX::strftime("%d/%m/%Y %T", localtime($$finish));
    };
 $tab->Scale(-orient => "horizontal", "-length" => "5c", -showvalue => 0,
             -from => $begin, -to => $end, -resolution => $interval,
@@ -405,8 +410,8 @@ $sub = sub
    elsif ($f - $min_diff < $s) { $d = $min_diff; $s = $f - $d }
    if ($s < $begin) { $s = $begin; $f = $begin + $d };
    $$start = $s; $$finish = $f;
-   $start_lab = strftime("%d/%m/%Y %T", gmtime($$start));
-   $finish_lab = strftime("%d/%m/%Y %T", gmtime($$finish));
+   $start_lab = POSIX::strftime("%d/%m/%Y %T", localtime($$start));
+   $finish_lab = POSIX::strftime("%d/%m/%Y %T", localtime($$finish));
    };
 $tab->Scale(-orient => "horizontal", "-length" => "5c", -showvalue => 0,
             -from => $begin, -to => $end, -resolution => $interval,
@@ -445,7 +450,7 @@ my (@cols, %sel_cols, $start, $finish, $scale, $sub,
 ### Create the top-level dialog
 my $dialog = $parent->Toplevel(-title => $graph->get_title());
 $dialog->withdraw();
-$dialog->resizable(0, 0);
+#$dialog->resizable(0, 0);
 $dialog->OnDestroy(sub { undef($graph); });
 
 ### Create the notebook
@@ -472,7 +477,7 @@ $sub = sub
    };
 
 # Figure out how big the grid is going to be
-my ($width, $rows) = grid_size(scalar(@cols));
+my ($width, $rows) = grid_size(@cols);
 my ($x, $y) = (0, 0);
 
 $box2 = $box1->Frame(-borderwidth => 0);
@@ -578,7 +583,7 @@ $button_sub = sub
 ### Create the top-level dialog & notebook
 my $dialog = $parent->Toplevel(-title => $graph->get_title());
 $dialog->withdraw();
-$dialog->resizable(0, 0);
+#$dialog->resizable(0, 0);
 $dialog->OnDestroy(sub { undef($graph); });
 my $notebook = $dialog->NoteBook(-ipadx => 0, -ipady => 0);
 
@@ -589,7 +594,7 @@ my $tab = $notebook->add("data", -label => "  Data  ");
 $box1 = $tab->Frame(-borderwidth => 1, -relief => "raised");
 $box1->Label(-text => "Select the value you wish to see on the plot")
    ->pack(-padx => 5, -pady => 5);
-my ($width, $rows) = grid_size(scalar(@cols));
+my ($width, $rows) = grid_size(@cols);
 my ($x, $y) = (0, 0);
 $box2 = $box1->Frame(-borderwidth => 0);
 foreach my $col (@cols)
@@ -617,10 +622,12 @@ $sub = sub
    };
 
 # Figure out how big the grid is going to be
-($width, $rows) = grid_size(scalar(@insts));
+($width, $rows) = grid_size(@insts);
 ($x, $y) = (0, 0);
 
-$box2 = $box1->Frame(-borderwidth => 0);
+$box2 = $box1->Scrolled("Pane", -scrollbars => "osow", -borderwidth => 1,
+                        -relief => "flat",
+                        -gridded => "xy", -sticky => "nsew");
 foreach my $inst (@insts)
    {
    $all_insts{$inst} = $box2->Checkbutton(-text => $inst,
@@ -629,8 +636,8 @@ foreach my $inst (@insts)
       ->grid(-column => $x, -row => $y, -sticky => "w");
    if (++$x >= $width) { $x = 0; $y++; }
    }
-$box2->pack(-padx => 5, -pady => 5);
-$box1->pack(-fill => "x");
+$box2->pack(-fill=> "both", -expand => 1, -padx => 5, -pady => 5);
+$box1->pack(-fill => "both", -expand => 1);
 
 # Create the pattern-match item selector
 # Callback for the pattern-match selector
@@ -675,11 +682,11 @@ $box1->Checkbutton(-text => "Logarithmic scaling?", -variable => \$scale,
                    -offvalue => "", -onvalue => "log",
                    -highlightthickness => 0, -command => $button_sub)
    ->pack(-padx => 5, -pady => 5);
-$box1->pack(-fill => "both", -expand => 1);
+$box1->pack(-fill => "x");
 
 ### Create the interval tab
 interval_tab($notebook, $graph, \$start, \$finish);
-$notebook->pack();
+$notebook->pack(-fill => "both", -expand => 1);
 
 ### Create the buttons
 $box1 = $dialog->Frame(-borderwidth => 3, -relief => "raised");
@@ -711,7 +718,7 @@ $save = $box1->Button(-text => "Save", -state => "disabled",
 $box1->Button(-text => "Quit",
               -command => sub { $dialog->destroy() })
    ->pack(-side => "left", -expand => 1, -padx => 5, -pady => 5);
-$box1->pack(-fill => "both", -expand => 1);
+$box1->pack(-fill => "x");
 
 $dialog->Popup();
 $parent->Unbusy();
@@ -954,19 +961,22 @@ if (! $Monitor{dialog})
       ->pack(-padx => 5, -pady => 5);
 
    $box2 = $box1->Frame();
-   $box2->Checkbutton(-text => "sar", -highlightthickness => 0,
-                      -command => [ $sel_sub, $Monitor{unix_mons}, "sar" ])
-      ->grid(-row => 0, -column => 0, -sticky => "w");
    $box2->Checkbutton(-text => "iostat", -highlightthickness => 0,
                       -command => [ $sel_sub, $Monitor{unix_mons}, "iostat" ])
-      ->grid(-row => 0, -column => 1, -sticky => "w");
-   $box2->Checkbutton(-text => "vmstat", -highlightthickness => 0,
-                      -command => [ $sel_sub, $Monitor{unix_mons}, "vmstat" ])
-      ->grid(-row => 0, -column => 2, -sticky => "w");
+      ->grid(-row => 0, -column => 0, -sticky => "w");
    $box2->Checkbutton(-text => "iost+", -highlightthickness => 0,
                       -state => $iost_state,
                       -command => [ $sel_sub, $Monitor{unix_mons}, "iost+" ])
+      ->grid(-row => 0, -column => 1, -sticky => "w");
+   $box2->Checkbutton(-text => "mpstat", -highlightthickness => 0,
+                      -command => [ $sel_sub, $Monitor{unix_mons}, "mpstat" ])
+      ->grid(-row => 0, -column => 2, -sticky => "w");
+   $box2->Checkbutton(-text => "sar", -highlightthickness => 0,
+                      -command => [ $sel_sub, $Monitor{unix_mons}, "sar" ])
       ->grid(-row => 0, -column => 3, -sticky => "w");
+   $box2->Checkbutton(-text => "vmstat", -highlightthickness => 0,
+                      -command => [ $sel_sub, $Monitor{unix_mons}, "vmstat" ])
+      ->grid(-row => 0, -column => 4, -sticky => "w");
    $box2->pack(-padx => 5, -pady => 5);
    $box1->pack(-fill => "x");
 

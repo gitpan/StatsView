@@ -1,6 +1,12 @@
 Revision history for StatsView
 ==============================
 
+1.1  Tue 25 May 1999
+--------------------
+Added scrollable pane for instance selection
+Fixed bug in date handling and dalight savings time
+Added support for mpstat output
+
 1.0  Thu 28 Jan 1999
 --------------------
 First non-beta release

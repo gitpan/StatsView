@@ -88,12 +88,6 @@ $SIG{HUP}  = sub { harikari(1, "received SIGHUP"); };
 $SIG{TERM} = sub { harikari(1, "received SIGTERM"); };
 my $hdr = strftime("Start: %d/%m/%y %T Interval: $interval\n\n", localtime());
 
-# sar
-if (defined($monitors{sar}))
-   {
-   forkproc("sar -A $interval $count $mapdev > $output.sar");
-   }
-
 # iostat
 if (defined($monitors{iostat}))
    {
@@ -105,6 +99,19 @@ if (defined($monitors{iostat}))
 if (defined($monitors{"iost+"}))
    {
    forkproc("iost+ $interval $count > $output.iost+");
+   }
+
+# mpstat
+if (defined($monitors{"mpstat"}))
+   {
+   writeheader("$output.mpstat", $hdr);
+   forkproc("mpstat $interval $count >> $output.mpstat");
+   }
+
+# sar
+if (defined($monitors{sar}))
+   {
+   forkproc("sar -A $interval $count $mapdev > $output.sar");
    }
 
 # vmstat

@@ -1,14 +1,14 @@
-StatsView Version 0.6 beta
-==========================
+StatsView Version 1.1
+=====================
 
 DESCRIPTION
 -----------
 
 StatsView is a GUI-based tool for viewing the output of the various utilities
 that produce system performance statistics.  At the moment sar, iostat, vmstat
-and vxstat are supported.  In this release the ability to collect statistics has
-been added, including the collection and display of Oracle statistics.
-Suggestions for other statistic types are welcome!
+mpstat and vxstat are supported.  There is also a GUI to allow the collection
+of these statistics.  It is also possible to collect and display Oracle
+statistics.  Suggestions for other statistic types are welcome!
 
 StatsView offers the following features:
 
@@ -30,10 +30,11 @@ PREREQUISITES
 -------------
 
 StatsView is written in Perl5, using the Perl Tk extension library.  I recommend
-that you use perl5.005_02 or later, and Tk800.012 or later, as StatsView has
-been tested with these versions.
+that you use perl5.005_03 or later, and Tk800.014 or later, as StatsView has
+been tested with these versions.  You will also need the Tl::GBARR add-on
+package for this version.
 
-The graphing is done with gnuplot, and version  3.6 beta or later is required -
+The graphing is done with gnuplot, and version 3.7 or later is required -
 a copy can be found in the gnuplot_src subdirectory.
 
 INSTALLATION

@@ -255,7 +255,7 @@ foreach my $c (@colname)
 $self->define_cols(\@colname, \@coltype);
 
 # Read the data block up to the Averages part
-my $last_tstamp = POSIX::mktime(0, 0, 0, $D, $M, $Y);
+my $last_tstamp = POSIX::mktime(0, 0, 0, $D, $M, $Y, 0, 0, -1);
 my $tstamp;
 my $sample = 1;
 while (defined($line = $self->getline($sar)) && $line !~ /^Average/)
@@ -263,13 +263,13 @@ while (defined($line = $self->getline($sar)) && $line !~ /^Average/)
    # Look for the start of the next sample point (a timestamp)
    next if ($line !~ /^(\d\d):(\d\d):(\d\d)/);
    my ($h, $m, $s) = ($1, $2, $3);
-   $tstamp = POSIX::mktime($s, $m, $h, $D, $M, $Y);
+   $tstamp = POSIX::mktime($s, $m, $h, $D, $M, $Y, 0, 0, -1);
 
    # Look for day rollover
    if ($tstamp < $last_tstamp)
       {
       $D++;
-      my $tstamp = POSIX::mktime($s, $m, $h, $D, $M, $Y);
+      my $tstamp = POSIX::mktime($s, $m, $h, $D, $M, $Y, 0, 0, -1);
       }
 
    # If this is the first sample, store the start time
@@ -370,7 +370,7 @@ foreach my $c (@colname)
 $self->define_cols(\@colname, \@coltype);
 
 # Scan the file, up to the Averages block
-my $last_tstamp = POSIX::mktime(0, 0, 0, $D, $M, $Y);
+my $last_tstamp = POSIX::mktime(0, 0, 0, $D, $M, $Y, 0, 0, -1);
 my $tstamp;
 my $sample = 1;
 while (defined($line = $self->getline($sar)) && $line !~ /^Average/)
@@ -378,13 +378,13 @@ while (defined($line = $self->getline($sar)) && $line !~ /^Average/)
    # Look for the start of the next sample point (a timestamp)
    next if ($line !~ /^(\d\d):(\d\d):(\d\d)/);
    my ($h, $m, $s) = ($1, $2, $3);
-   $tstamp = POSIX::mktime($s, $m, $h, $D, $M, $Y);
+   $tstamp = POSIX::mktime($s, $m, $h, $D, $M, $Y, 0, 0, -1);
 
    # Look for day rollover
    if ($tstamp < $last_tstamp)
       {
       $D++;
-      $tstamp = POSIX::mktime($s, $m, $h, $D, $M, $Y);
+      $tstamp = POSIX::mktime($s, $m, $h, $D, $M, $Y, 0, 0, -1);
       }
 
    # If this is the first sample, store the start time

@@ -94,7 +94,7 @@ while (defined($line = $oracle->getline()))
       {
       my ($D, $M, $Y, $h, $m, $s) = split(/[\/: ]/, $1);
       $M--; $Y -= 1900;
-      $tstamp = POSIX::mktime($s, $m, $h, $D, $M, $Y);
+      $tstamp = POSIX::mktime($s, $m, $h, $D, $M, $Y, 0, 0, -1);
       push(@{$self->{tstamps}}, $tstamp);
       if ($first_ts) { $self->{start} = $tstamp; $first_ts = 0; }
       if ($type eq '2d')
