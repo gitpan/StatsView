@@ -91,7 +91,7 @@ my $hdr = strftime("Start: %d/%m/%y %T Interval: $interval\n\n", localtime());
 # sar
 if (defined($monitors{sar}))
    {
-   forkproc("sar -A $interval $count $mapdev >> $output.sar");
+   forkproc("sar -A $interval $count $mapdev > $output.sar");
    }
 
 # iostat
@@ -104,7 +104,7 @@ if (defined($monitors{iostat}))
 # iost+
 if (defined($monitors{"iost+"}))
    {
-   forkproc("iost+ $interval $count >> $output.iost+");
+   forkproc("iost+ $interval $count > $output.iost+");
    }
 
 # vmstat

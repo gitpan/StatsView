@@ -1,12 +1,24 @@
-Revision history for Perl script StatsView.
+Revision history for StatsView
+==============================
 
-0.1 beta  Tue Dec 16 1997
-Original version
+1.0  Thu 28 Jan 1999
+--------------------
+First non-beta release
+Fixed closure bug in Graph::Sar
+Bundled with gnuplot 3.7
 
-0.2-0.5 beta
-Various internal releases
+0.7 beta  Fri 1 Jan 1999
+------------------------
+Added start/end selection
+   Changed timestamp format from string to Unix time_t
+   Added start/finish tabs to sv dialogs
+Changed structure of StavsView::Graph subclasses
+   Subclass .pm files under StatsView::Graph are searched for at run-time
+   Subclass new methods return undef if the passed file is not recognised,
+   or an initialised object if it is.
 
 0.6 beta  Mon 7 Dec 1998
+------------------------
 First public release
    Code under source control
    Directory struture changes to source tree
@@ -15,3 +27,11 @@ First public release
    Integrated monitoring added
    iost+ parser added
    Various bugfixes
+
+0.2-0.5 beta
+------------
+Various internal releases
+
+0.1 beta  Tue Dec 16 1997
+-------------------------
+Original version

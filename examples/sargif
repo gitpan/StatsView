@@ -10,7 +10,7 @@ my $gif_blks = "sar_blks.gif";
 my $gif_rw   = "sar_rw.gif";
 
 my $graph;
-exit if (! eval { $graph = StatsView::Graph->open($sar); });
+exit if (! eval { $graph = StatsView::Graph->new($sar); });
    
 $graph->read("CPU usage");
 

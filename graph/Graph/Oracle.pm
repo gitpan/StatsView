@@ -1,7 +1,7 @@
 ################################################################################
 
 use strict;
-use Time::Local;
+use POSIX qw(mktime);
 use StatsView::Graph;
 package StatsView::Graph::Oracle;
 @StatsView::Graph::Oracle::ISA = qw(StatsView::Graph);
@@ -10,34 +10,34 @@ package StatsView::Graph::Oracle;
 
 sub new()
 {
-my ($class, $file) = @_;
+my ($class, $file, $fh) = @_;
 $class = ref($class) || $class;
-my $self = $class->SUPER::init($file);
-
-# Figure out what type of file we have
-my $oracle = IO::File->new($file, "r") || die("Can't open $file: $!\n");
-my $line;
 
 # Look for the header line
-while (defined($line = $oracle->getline()) && $line =~ /^\s*$/) { }
-$line =~ /Oracle Statistics File/
-   || die("$self->{file} is not a Oracle Statistics file (1)\n");
+my $line;
+while (defined($line = $fh->getline()) && $line =~ /^\s*$/) { }
+$line =~ /Oracle Statistics File/ || return(undef);
 
 # Read in all the categories
 my $title;
-while (defined($line = $oracle->getline()) && $line !~ /^\s*Data\s*$/)
+my $self = $class->SUPER::init($file);
+while (defined($line = $fh->getline()) && $line !~ /^\s*Data\s+/)
    {
    if ($line =~ /^Title:\s*(.*)/)
       {
       $title = $1;
-      $line = $oracle->getline();
+      $line = $fh->getline();
       my ($tag, $type) = $line =~ /Statistics:\s*(\w+)\s+(\w+)/;
       $type = ($type eq 'singlerow') ? '2d' : '3d';
-      $self->{info}->{$title} = { tag => $tag, type => $type};
+      $self->{info}->{$title} = { tag => qr/^$tag\s+(.*)/, type => $type};
       push(@{$self->{category}}, $title)
       }
    }
-$oracle->close();
+
+# Check the data tag line
+die("$file is not a Oracle Statistics file (1)\n")
+   if ($line !~ /^\s*Data\s+rate:\s+\d+/);
+
 return($self);
 }
 
@@ -51,18 +51,18 @@ $self->SUPER::read($category);
 # Open the file
 my $oracle = IO::File->new($self->{file}, "r")
    || die("Can't open $self->{file}: $!\n");
-$self->{title} = "Oracle Statistics";
-my $line;
+$self->{title} = "Oracle $category";
 
+# Look for the banner line
+my $line;
 while (defined($line = $oracle->getline()) && $line =~ /^\s*$/) { }
 $line =~ /Oracle Statistics File created on (\d\d\/\d\d\/\d\d(?:\d\d)?)/
    || die("$self->{file} is not a Oracle Statistics file (2)\n");
-$self->{date} = $1;
 
 # Look for the header for the category
 my ($tag, $type) = @{$self->{info}->{$category}}{qw(tag type)};
 my ($headings, $formats);
-while (defined($line = $oracle->getline()) && $line !~ /^\s*Data\s*$/)
+while (defined($line = $oracle->getline()) && $line !~ /^\s*Data\s+/)
    {
    if ($line =~ /Title:\s*$category/)
       {
@@ -78,16 +78,25 @@ while (defined($line = $oracle->getline()) && $line !~ /^\s*Data\s*$/)
 my @colname = split(',', $headings);
 my @coltype = split('', $formats);
 $self->define_cols(\@colname, \@coltype);
-$self->{title} = $category;
+
+# Store the interval information
+$line =~ /^\s*Data\s+rate:\s+(\d+)\s*$/
+   || die("$self->{file} is not a Oracle Statistics file (3)\n");
+$self->{interval} = $1;
 
 # Read in the data values
+my $tstamp;
+my $first_ts = 1;
 while (defined($line = $oracle->getline()))
    {
    chomp($line);
-   if ($line =~ /^$tag\s+(.*)/)
+   if ($line =~ $tag)
       {
-      my $tstamp = $1;
+      my ($D, $M, $Y, $h, $m, $s) = split(/[\/: ]/, $1);
+      $M--; $Y -= 1900;
+      $tstamp = POSIX::mktime($s, $m, $h, $D, $M, $Y);
       push(@{$self->{tstamps}}, $tstamp);
+      if ($first_ts) { $self->{start} = $tstamp; $first_ts = 0; }
       if ($type eq '2d')
          {
          $line = $oracle->getline(); chomp($line);
@@ -100,14 +109,16 @@ while (defined($line = $oracle->getline()))
             {
             chomp($line);
             my ($inst, @value) = split(',', $line);
+            $self->define_inst($inst);
             push(@{$self->{data}{$inst}},
                  { tstamp => $tstamp, value => [ @value ] });
-            $self->{instance}{$inst} = $self->{index_3d}++
-               if (! exists($self->{instance}->{$inst}));
             }
          }
       }
    }
+
+# Save the finish time
+$self->{finish} = $tstamp;
 
 $oracle->close();
 }

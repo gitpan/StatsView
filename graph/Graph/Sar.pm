@@ -1,6 +1,7 @@
 ################################################################################
 
 use strict;
+use POSIX qw(mktime);
 use StatsView::Graph;
 package StatsView::Graph::Sar;
 @StatsView::Graph::Sar::ISA = qw(StatsView::Graph);
@@ -9,67 +10,68 @@ package StatsView::Graph::Sar;
    (
    'Filesystem activity' => { flag    => '-a',
                               type    => '2d',
-                              pattern =>  sub { $_[0] =~ /iget/ } },
+                              pattern =>  qr/iget/, },
    'Buffer activity'     => { flag    => '-b',
                               type    => '2d',
-                              pattern =>  sub { $_[0] =~ /bread/ } },
+                              pattern =>  qr/bread/, },
    'System calls'        => { flag    => '-c',
                               type    => '2d' ,
-                              pattern =>  sub { $_[0] =~ /scall/ } },
+                              pattern =>  qr/scall/, },
    'Disk IO'             => { flag    => '-d',
                               type    => '3d' ,
-                              pattern =>  sub { $_[0] =~ /device/ } },
+                              pattern =>  qr/device/, },
    'Paging (2)'          => { flag    => '-g',
                               type    => '2d' ,
-                              pattern =>  sub { $_[0] =~ /pgout/ } },
+                              pattern =>  qr/pgout/, },
    'Kernel memory'       => { flag    => '-k',
                               type    => '2d' ,
-                              pattern =>  sub { $_[0] =~ /sml_mem/ } },
+                              pattern =>  qr/sml_mem/, },
    'IPC'                 => { flag    => '-m',
                               type    => '2d' ,
-                              pattern =>  sub { $_[0] =~ /msg/} },
+                              pattern =>  qr/msg/, },
    'Paging (1)'          => { flag    => '-p',
                               type    => '2d' ,
-                              pattern =>  sub { $_[0] =~ /atch/} },
+                              pattern =>  qr/atch/, },
    'Run queue'           => { flag    => '-q',
                               type    => '2d' ,
-                              pattern =>  sub { $_[0] =~ /runq/} },
+                              pattern =>  qr/runq/, },
    'Free memory'         => { flag    => '-r',
                               type    => '2d' ,
-                              pattern =>  sub { $_[0] =~ /freemem/} },
+                              pattern =>  qr/freemem/, },
    'CPU usage'           => { flag    => '-u',
                               type    => '2d' ,
-                              pattern =>  sub { $_[0] =~ /%usr/} },
+                              pattern =>  qr/%usr/, },
    'Kernel table sizes'  => { flag    => '-v',
                               type    => '2d' ,
-                              pattern =>  sub { $_[0] =~ /proc-sz/} },
+                              pattern =>  qr/proc-sz/, },
    'Swapping/Switching'  => { flag    => '-w',
                               type    => '2d' ,
-                              pattern =>  sub { $_[0] =~ /swpin/} },
+                              pattern =>  qr/swpin/, },
    'TTY activity'        => { flag    => '-y',
                               type    => '2d' ,
-                              pattern =>  sub { $_[0] =~ /rawch/} },
+                              pattern =>  qr/rawch/, },
    );
 
 
 ################################################################################
 # Figure out what sort of data this line is a header for
 
-sub _classify_header($$)
+sub classify_header($$)
 {
 my ($self, $line) = @_;
 my ($desc, $inf);
 while (($desc, $inf) = each(%StatsView::Graph::Sar::info))
    {
-   last if (&{$inf->{pattern}}($line));
+   last if ($line =~ $inf->{pattern});
    }
 scalar(keys(%StatsView::Graph::Sar::info));   # reset the each() iterator
 return($desc);
 }
 
 ################################################################################
+# Get the next line, ignoring state change lines
 
-sub _getline($$)
+sub getline($$)
 {
 my ($self, $fh) = @_;
 my $line;
@@ -81,74 +83,72 @@ return($line);
 
 ################################################################################
 
-sub new()
+sub new($$$)
 {
-my ($class, $file) = @_;
+my ($class, $file, $fh) = @_;
 $class = ref($class) || $class;
-my $self = $class->SUPER::init($file);
 
-# Figure out what type of file we have
+# Assume binary files are binary sar output
 if (-B $file)
    {
+   my $self = $class->SUPER::init($file);
    @{$self->{category}} = keys(%StatsView::Graph::Sar::info);
-   $self->{reader} = "_read_binary";
+   $self->{reader} = sub { shift(@_)->read_binary(@_); };
+   return($self);
    }
+# Otherwise, check for the two possible text formats
 else
    {
-   # Figure out what type of file we have
-   my $sar = IO::File->new($file, "r") || die("Can't open $file: $!\n");
-
    # Look for the first header line
    my ($line, $type);
-   while (defined($line = $self->_getline($sar)) && $line !~ /^\d\d:\d\d:\d\d/)
+   while (defined($line = $class->getline($fh)) && $line !~ /^\d\d:\d\d:\d\d/)
       { }
+   return(undef) if (! $line);
 
-   # Something is wrong if the line is not a header
-   $type = $self->_classify_header($line)
-      || die("$self->{file} is not a sar file (1)\n");
+   # Not a sar file if the line is not a header
+   $type = $class->classify_header($line) || return(undef);
 
    # Save the header type
+   my $self = $class->SUPER::init($file);
    push(@{$self->{category}}, $type);
           
    # Peek at the next line.  If it too is a header, the format is hhdd
-   $line = $self->_getline($sar);
-   if ($type = $self->_classify_header($line))
+   $line = $self->getline($fh);
+   if ($type = $self->classify_header($line))
       {
       push(@{$self->{category}}, $type);
-      $self->{reader} = "_read_text_hhdd";
+      $self->{reader} = sub { shift(@_)->read_text_hhdd(@_); };
 
       # All the headers will be between here and the next blank line
-      while (defined($line = $self->_getline($sar)) && $line !~ /^\s*$/)
+      while (defined($line = $self->getline($fh)) && $line !~ /^\s*$/)
          {
-         $type = $self->_classify_header($line)
-            || die("$self->{file} is not a sar file (2)\n");
+         $type = $self->classify_header($line) || return(undef);
          push(@{$self->{category}}, $type);
          }
       }
    # Otherwise the format is hdhd
    else
       {
-      $self->{reader} = "_read_text_hdhd";
+      $self->{reader} = sub { shift(@_)->read_text_hdhd(@_); };
 
       # Headers will be scattered throughout the file
-      while (defined($line = $self->_getline($sar)))
+      while (defined($line = $self->getline($fh)))
          {
          # Look for timestamp lines
          next if ($line !~ /^\d\d:\d\d:\d\d/);
-         if ($type = $self->_classify_header($line))
+         if ($type = $self->classify_header($line))
             {
             push(@{$self->{category}}, $type);
             }
          }
       }
-   $sar->close();
+   return($self);
    }
-return($self);
 }
 
 ################################################################################
 
-sub _store_sample($$$$;$)
+sub store_sample($$$$;$)
 {
 my ($self, $type, $tstamp, $line, $sar) = @_;
 
@@ -182,22 +182,20 @@ else
    # Ignore slice and NFS data
    if ($inst !~ /,\w$|s\d$|^\w+:|^nfs/)
       {
+      $self->define_inst($inst);
       push(@{$self->{data}{$inst}}, { tstamp => $tstamp, value => [ @value ] });
-      $self->{instance}{$inst} = $self->{index_3d}++
-         if (! exists($self->{instance}->{$inst}));
       }
 
    # Process all the subsequent lines of the sample point
-   while (defined($line = $self->_getline($sar)) && $line =~ /^\s*[a-z]/i)
+   while (defined($line = $self->getline($sar)) && $line =~ /^\s*[a-z]/i)
       {
       ($inst, @value) = split(' ', $line);
       # Ignore slice and NFS data
       if ($inst !~ /,\w$|s\d$|^\w+:|^nfs/)
          {
+         $self->define_inst($inst);
          push(@{$self->{data}{$inst}}, { tstamp => $tstamp,
-                                         value => [ @value ] });
-         $self->{instance}{$inst} = $self->{index_3d}++
-            if (! exists($self->{instance}->{$inst}));
+                                         value  => [ @value ] });
          }
       }
    }
@@ -206,7 +204,7 @@ else
 ################################################################################
 # Run queue stats use blanks instead of zeros, so split won't work
 
-sub _horrid_run_queue_hack($$$)
+sub horrid_run_queue_hack($$$)
 {
 my ($self, $tstamp, $line) = @_;
 
@@ -226,7 +224,7 @@ push(@{$self->{data}}, { tstamp => $tstamp, value => [ @value ] });
 
 ################################################################################
 
-sub _scan_hdhd($$$)
+sub scan_hdhd($$$)
 {
 my ($self, $sar, $category) = @_;
 my ($type, $pattern) =
@@ -234,18 +232,18 @@ my ($type, $pattern) =
 my $line;
 
 # Look for the banner
-while (defined ($line = $self->_getline($sar)) && $line !~ /^SunOS/) { }
-die("$self->{file} is not a sar file (3)\n") if (! $line);
+while (defined ($line = $self->getline($sar)) && $line !~ /^SunOS/) { }
+die("$self->{file} is not a sar file (1)\n") if (! $line);
 my ($M, $D, $Y) = split(/\//, (split(' ', $line))[5]);
-$Y += 1900 if ($Y < 100);
-$self->{date} = "$D/$M/$Y";
+$Y -= 1900 if ($Y > 100);
+$M--;
 
 # Look for the header line & get a list of column names
-while (defined($line = $self->_getline($sar)))
+while (defined($line = $self->getline($sar)))
    {
-   last if ($line =~ /^\d\d:\d\d:\d\d/ && &$pattern($line));
+   last if ($line =~ /^\d\d:\d\d:\d\d/ && $line =~ $pattern);
    }
-die("$self->{file} is not a sar file (4)\n") if (! $line);
+die("$self->{file} is not a sar file (2)\n") if (! $line);
 my @colname = split(' ', $line);
 shift(@colname);                      # lose the timestamp
 shift(@colname) if ($type eq '3d');   # and the instance for 3d data
@@ -257,85 +255,94 @@ foreach my $c (@colname)
 $self->define_cols(\@colname, \@coltype);
 
 # Read the data block up to the Averages part
-$M--;
-$Y -= 1900;
-my $last_t = POSIX::mktime(0, 0, 0, $D, $M, $Y);
-while (defined($line = $self->_getline($sar)) && $line !~ /^Average/)
+my $last_tstamp = POSIX::mktime(0, 0, 0, $D, $M, $Y);
+my $tstamp;
+my $sample = 1;
+while (defined($line = $self->getline($sar)) && $line !~ /^Average/)
    {
    # Look for the start of the next sample point (a timestamp)
    next if ($line !~ /^(\d\d):(\d\d):(\d\d)/);
    my ($h, $m, $s) = ($1, $2, $3);
-   my $t = POSIX::mktime($s, $m, $h, $D, $M, $Y);
+   $tstamp = POSIX::mktime($s, $m, $h, $D, $M, $Y);
 
    # Look for day rollover
-   if ($t < $last_t)
+   if ($tstamp < $last_tstamp)
       {
       $D++;
-      my $t = POSIX::mktime($s, $m, $h, $D, $M, $Y);
+      my $tstamp = POSIX::mktime($s, $m, $h, $D, $M, $Y);
       }
-   $last_t = $t;
-   my $tstamp = POSIX::strftime("%d/%m/%Y %T", $s, $m, $h, $D, $M, $Y);
+
+   # If this is the first sample, store the start time
+   if ($sample == 1)
+      { $self->{start} = $tstamp; $sample++; }
+   # If this is the second sample, store the interval
+   elsif ($sample == 2)
+      { $self->{interval} = $tstamp - $last_tstamp; $sample++; }
 
    # Store the sample
    if ($category eq 'Run queue')
-      { $self->_horrid_run_queue_hack($tstamp, $line); }
+      { $self->horrid_run_queue_hack($tstamp, $line); }
    else
-      { $self->_store_sample($type, $tstamp, $line, $sar); }
+      { $self->store_sample($type, $tstamp, $line, $sar); }
+
+   $last_tstamp = $tstamp;
    }
+$self->{finish} = $tstamp;
 }
 
 ################################################################################
 
-sub _read_binary($$)
+sub read_binary($$)
 {
 my ($self, $category) = @_;
 
-$self->{title} = $category;
+$self->{title} = "Sar $category";
 my $sar =
    IO::File->new("sar $StatsView::Graph::Sar::info{$category}{flag} " .
                  "-f $self->{file} |")
    || die("Can't run sar: $!\n");
-$self->_scan_hdhd($sar, $category);
+$self->scan_hdhd($sar, $category);
 $sar->close();
+die("$self->{file} is not a sar file\n") if (! defined($self->{data}));
 return(1);
 }
 
 ################################################################################
 
-sub _read_text_hdhd($$)
+sub read_text_hdhd($$)
 {
 my ($self, $category) = @_;
 
-$self->{title} = $category;
+$self->{title} = "Sar $category";
 my $sar = IO::File->new($self->{file}, "r")
    || die("Can't open $self->{file}: $!\n");
-$self->_scan_hdhd($sar, $category);
+$self->scan_hdhd($sar, $category);
 $sar->close();
 return(1);
 }
 
 ################################################################################
 
-sub _read_text_hhdd($$)
+sub read_text_hhdd($$)
 {
 my ($self, $category) = @_;
 my $type = $StatsView::Graph::Sar::info{$category}{type};
 
-$self->{title} = $category;
+$self->{title} = "Sar $category";
 my $sar = IO::File->new($self->{file}, "r")
    || die("Can't open $self->{file}: $!\n");
 my $line;
 
 # Look for the banner
-while (defined ($line = $self->_getline($sar)) && $line !~ /^SunOS/) { }
-die("$self->{file} is not a sar file (5)\n") if (! $line);
+while (defined ($line = $self->getline($sar)) && $line !~ /^SunOS/) { }
+die("$self->{file} is not a sar file (3)\n") if (! $line);
 my ($M, $D, $Y) = split(/\//, (split(' ', $line))[5]);
-$Y += 1900 if ($Y < 100);
-$self->{date} = "$D/$M/$Y";
+$Y -= 1900 if ($Y > 100);
+$M--;
 
 # Look for the headers
-while (defined($line = $self->_getline($sar)) && $line !~ /^\d\d:\d\d:\d\d/) { }
-die("$self->{file} is not a sar file (6)\n") if (! $line);
+while (defined($line = $self->getline($sar)) && $line !~ /^\d\d:\d\d:\d\d/) { }
+die("$self->{file} is not a sar file (4)\n") if (! $line);
 
 # All the headers are in a block, terminated by a blank line.
 # Find how far down the one we want is
@@ -343,15 +350,15 @@ my @skip;
 while (defined($line) && $line !~ /^\s*$/)
    {
    # Classify the header & get it's type
-   my $type = $self->_classify_header($line);
-   die("$self->{file} is not a sar file (7)\n") if (! $type);
+   my $type = $self->classify_header($line);
+   die("$self->{file} is not a sar file (5)\n") if (! $type);
    last if ($type eq $category);
    push(@skip, $StatsView::Graph::Sar::info{$type}{type});
-   $line = $self->_getline($sar);
+   $line = $self->getline($sar);
    }
 
 # Get a list of column names
-die("$self->{file} is not a sar file (8)\n") if (! $line);
+die("$self->{file} is not a sar file (6)\n") if (! $line);
 $line =~ s/^\d\d:\d\d:\d\d//;         # lose any timestamp
 my @colname = split(' ', $line);
 shift(@colname) if ($type eq '3d');   # lose the instance for 3d data
@@ -363,36 +370,39 @@ foreach my $c (@colname)
 $self->define_cols(\@colname, \@coltype);
 
 # Scan the file, up to the Averages block
-$M--;
-$Y -= 1900;
-my $last_t = POSIX::mktime(0, 0, 0, $D, $M, $Y);
-while (defined($line = $self->_getline($sar)) && $line !~ /^Average/)
+my $last_tstamp = POSIX::mktime(0, 0, 0, $D, $M, $Y);
+my $tstamp;
+my $sample = 1;
+while (defined($line = $self->getline($sar)) && $line !~ /^Average/)
    {
    # Look for the start of the next sample point (a timestamp)
    next if ($line !~ /^(\d\d):(\d\d):(\d\d)/);
    my ($h, $m, $s) = ($1, $2, $3);
-   my $t = POSIX::mktime($s, $m, $h, $D, $M, $Y);
+   $tstamp = POSIX::mktime($s, $m, $h, $D, $M, $Y);
 
    # Look for day rollover
-   if ($t < $last_t)
+   if ($tstamp < $last_tstamp)
       {
       $D++;
-      my $t = POSIX::mktime($s, $m, $h, $D, $M, $Y);
+      $tstamp = POSIX::mktime($s, $m, $h, $D, $M, $Y);
       }
-   $last_t = $t;
-   my $tstamp = POSIX::strftime("%d/%m/%Y %T", $s, $m, $h, $D, $M, $Y);
+
+   # If this is the first sample, store the start time
+   if ($sample == 1) { $self->{start} = $tstamp; }
+   # If this is the second sample, store the interval
+   elsif ($sample == 2) { $self->{interval} = $tstamp - $last_tstamp; }
 
    # Skip lines up to the start of the info we want
    foreach my $hdr (@skip)
       {
       if ($hdr eq '2d')
          {
-         $line = $self->_getline($sar);
+         $line = $self->getline($sar);
          }
       else
          {
          # Read up to the end of the data block.  Have to guess this :-(
-         while (defined($line = $self->_getline($sar))
+         while (defined($line = $self->getline($sar))
                 && $line =~ /^\s*[a-z]/i) { }
          }
       }
@@ -401,10 +411,14 @@ while (defined($line = $self->_getline($sar)) && $line !~ /^Average/)
 
    # Store the sample
    if ($category eq 'Run queue')
-      { $self->_horrid_run_queue_hack($tstamp, $line); }
+      { $self->horrid_run_queue_hack($tstamp, $line); }
    else
-      { $self->_store_sample($type, $tstamp, $line, $sar); }
+      { $self->store_sample($type, $tstamp, $line, $sar); }
+
+   $sample++;
+   $last_tstamp = $tstamp;
    }
+$self->{finish} = $tstamp;
 $sar->close();
 return(1);
 }
@@ -417,8 +431,7 @@ my ($self, $category) = @_;
 die("Illegal category type $category\n")
    if (! exists($StatsView::Graph::Sar::info{$category}));
 $self->SUPER::read($category);
-my $readfn = $self->{reader};
-return($self->$readfn($category));
+return(&{$self->{reader}}($self, $category));
 }
 
 ################################################################################

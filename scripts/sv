@@ -2,20 +2,20 @@
 
 use strict;
 use File::Basename qw(basename dirname);
-use POSIX qw(:sys_wait_h);
+use POSIX qw(:sys_wait_h strftime);
 use Tk;
 use Tk::Dialog;
 use Tk::FileSelect;
 use Tk::NoteBook;
 use IO::Pipe;
-use Cwd;
+use Cwd qw(cwd fast_abs_path);
 use StatsView::Graph;
 
 ################################################################################
 
 package main;
 use vars qw($VERSION $Main %Monitor $DatDir $SaveDir);
-$VERSION = "0.6_beta";
+$VERSION = "1.0";
 
 ################################################################################
 
@@ -66,7 +66,7 @@ my $msg = <<EOM;
 
 EOM
 
-my $dialog = $parent->Toplevel(-title => "About explain");
+my $dialog = $parent->Toplevel(-title => "About StatsView");
 $dialog->withdraw();
 $dialog->resizable(0, 0);
 my $text = $dialog->Text(-borderwidth => 3, -width => 80, -height => 16,
@@ -366,8 +366,64 @@ return(1);
 }
 
 ################################################################################
+# Interval selection stuff
 
+sub interval_tab($$$$)
+{
+my ($notebook, $graph, $start, $finish, $sub, $locked, $lock_diff) = @_;
+my ($begin, $interval, $end) = $graph->get_times();
+my $min_diff = $interval * 5;
+($$start, $$finish) =  ($begin, $end);
+my ($start_lab, $finish_lab);
+
+my $tab = $notebook->add("interval", -label => "Interval");
+$tab->Label(-text => "Please select the start and finish times\n"
+                   . "of the data you wish to see on the plot")
+   ->pack(-padx => 5, -pady => 5);
+$sub = sub
+   {
+   my $d;
+   my ($s, $f) = ($$start, $$finish);
+   if ($locked) { $d = $lock_diff;  $f = $s + $d; }
+   elsif ($s + $min_diff > $f) { $d = $min_diff; $f = $s + $d }
+   if ($f > $end) { $f = $end; $s = $end - $d };
+   $$start = $s; $$finish = $f;
+   $start_lab = strftime("%d/%m/%Y %T", gmtime($$start));
+   $finish_lab = strftime("%d/%m/%Y %T", gmtime($$finish));
+   };
+$tab->Scale(-orient => "horizontal", "-length" => "5c", -showvalue => 0,
+            -from => $begin, -to => $end, -resolution => $interval,
+            -variable => $start, -highlightthickness => 0, -width => 10,
+            -sliderlength => 20, -label => "Start time", -command => $sub)
+   ->pack(-padx => 5, -pady => 5);
+$tab->Label(-textvariable => \$start_lab)->pack(-padx => 5, -pady => 5);
+$sub = sub
+   {
+   my $d;
+   my ($s, $f) = ($$start, $$finish);
+   if ($locked) { $d = $lock_diff;  $s = $f - $d; }
+   elsif ($f - $min_diff < $s) { $d = $min_diff; $s = $f - $d }
+   if ($s < $begin) { $s = $begin; $f = $begin + $d };
+   $$start = $s; $$finish = $f;
+   $start_lab = strftime("%d/%m/%Y %T", gmtime($$start));
+   $finish_lab = strftime("%d/%m/%Y %T", gmtime($$finish));
+   };
+$tab->Scale(-orient => "horizontal", "-length" => "5c", -showvalue => 0,
+            -from => $begin, -to => $end, -resolution => $interval,
+            -variable => $finish, -highlightthickness => 0, -width => 10,
+            -sliderlength => 20, -label => "Finish time", -command => $sub)
+   ->pack(-padx => 5, -pady => 5);
+$tab->Label(-textvariable => \$finish_lab)->pack(-padx => 5, -pady => 5);
+$tab->Checkbutton(-text => "Lock sliders together?", -variable => \$locked,
+                  -offvalue => 0, -onvalue => 1, -highlightthickness => 0,
+                  -command =>
+                  sub { $lock_diff = $$finish - $$start if ($locked); })
+   ->pack(-padx => 5, -pady => 5);
+}
+
+################################################################################
 # 2d plot dialog
+
 sub plot_2d_dialog($$;$)
 {
 my ($parent, $file, $cat) = @_;
@@ -382,7 +438,8 @@ if (! eval { $graph = StatsView::Graph->new($file); $graph->read($cat); })
    return;
    }
 
-my (@cols, %sel_cols, $scale, $sub, $box1, $box2, $print, $save, $apply);
+my (@cols, %sel_cols, $start, $finish, $scale, $sub,
+    $box1, $box2, $print, $save, $apply);
 @cols = $graph->get_columns();
 
 ### Create the top-level dialog
@@ -391,8 +448,12 @@ $dialog->withdraw();
 $dialog->resizable(0, 0);
 $dialog->OnDestroy(sub { undef($graph); });
 
-### Create the "select values" box
-$box1 = $dialog->Frame(-borderwidth => 1, -relief => "raised");
+### Create the notebook
+my $notebook = $dialog->NoteBook(-ipadx => 0, -ipady => 0);
+my $tab = $notebook->add("data", -label => "  Data  ");
+
+# Create the "select values" box
+$box1 = $tab->Frame(-borderwidth => 1, -relief => "raised");
 $box1->Label(-text => "Select the values you wish to see on the plot")
    ->pack(-padx => 5, -pady => 5);
 
@@ -425,25 +486,32 @@ foreach my $col (@cols)
 $box2->pack(-padx => 5, -pady => 5);
 $box1->pack(-fill => "x");
 
-### Create the "Select log scaling" checkbox
+# Create the "Select log scaling" checkbox
 $sub = sub
    {
    $print->configure(-state => "disabled");
    $save->configure(-state => "disabled");
    };
 $scale = "";
-$box1 = $dialog->Frame(-borderwidth => 1, -relief => "raised");
+$box1 = $tab->Frame(-borderwidth => 1, -relief => "raised");
 $box1->Checkbutton(-text => "Logarithmic scaling?", -variable => \$scale,
                    -offvalue => "", -onvalue => "log",
                    -highlightthickness => 0, -command => $sub)
    ->pack(-padx => 5, -pady => 5);
-$box1->pack(-fill => "x");
+$box1->pack(-fill => "both", -expand => 1);
 
-### Create the "Apply" button
-$box1 = $dialog->Frame(-borderwidth => 1, -relief => "raised");
+### Create the interval tab
+interval_tab($notebook, $graph, \$start, \$finish);
+$notebook->pack();
+
+### Create the buttons
+$box1 = $dialog->Frame(-borderwidth => 3, -relief => "raised");
+
+# Create the "Apply" button
 $sub = sub
    {
    plot_apply_cb($dialog, $graph, scale => $scale,
+                 start => $start, finish => $finish,
                  columns => [ keys(%sel_cols) ]);
    $print->configure(-state => "normal");
    $save->configure(-state => "normal");
@@ -452,17 +520,17 @@ $apply = $box1->Button(-text => "Apply", -state => "disabled",
                        -command => $sub)
    ->pack(-side => "left", -expand => 1, -padx => 5, -pady => 5);
 
-### Create the "Print" button
+# Create the "Print" button
 $print = $box1->Button(-text => "Print", -state => "disabled",
                        -command => sub { print_dialog($dialog, $graph); })
    ->pack(-side => "left", -expand => 1, -padx => 5, -pady => 5);
 
-### Create the "Save" button
+# Create the "Save" button
 $save = $box1->Button(-text => "Save", -state => "disabled",
                       -command => sub { save_dialog($dialog, $graph); })
    ->pack(-side => "left", -expand => 1, -padx => 5, -pady => 5);
 
-### Create the "Quit" button
+# Create the "Quit" button
 $box1->Button(-text => "Quit", -command => sub { $dialog->destroy() })
    ->pack(-side => "left", -expand => 1, -padx => 5, -pady => 5);
 $box1->pack(-fill => "x");
@@ -492,8 +560,8 @@ if (! eval { $graph = StatsView::Graph->new($file); $graph->read($cat); })
 # Find out what's what
 my @cols  = $graph->get_columns();
 my @insts = $graph->get_instances();
-my ($sel_col, %all_insts, %sel_insts);
-my ($scale, $button_sub, $sub, $box1, $box2, $pattern, $apply, $save, $print);
+my ($sel_col, %all_insts, %sel_insts, $start, $finish,
+    $scale, $button_sub, $sub, $box1, $box2, $pattern, $apply, $save, $print);
 $pattern = "";
 
 # Callback for when a column or item is selected/deselected
@@ -507,14 +575,18 @@ $button_sub = sub
    $save->configure(-state => "disabled");
    };
 
-### Create the top-level dialog
+### Create the top-level dialog & notebook
 my $dialog = $parent->Toplevel(-title => $graph->get_title());
 $dialog->withdraw();
 $dialog->resizable(0, 0);
 $dialog->OnDestroy(sub { undef($graph); });
+my $notebook = $dialog->NoteBook(-ipadx => 0, -ipady => 0);
 
-### Create the "select a value" box
-$box1 = $dialog->Frame(-borderwidth => 1, -relief => "raised");
+### Create the data tab
+my $tab = $notebook->add("data", -label => "  Data  ");
+
+# Create the "select a value" box
+$box1 = $tab->Frame(-borderwidth => 1, -relief => "raised");
 $box1->Label(-text => "Select the value you wish to see on the plot")
    ->pack(-padx => 5, -pady => 5);
 my ($width, $rows) = grid_size(scalar(@cols));
@@ -530,8 +602,8 @@ foreach my $col (@cols)
 $box2->pack(-padx => 5, -pady => 5);
 $box1->pack(-fill => "x");
 
-### Create the "select an item" box
-$box1 = $dialog->Frame(-borderwidth => 1, -relief => "raised");
+# Create the "select an item" box
+$box1 = $tab->Frame(-borderwidth => 1, -relief => "raised");
 $box1->Label(-text => "Select the items you wish to see on the plot")
    ->pack(-padx => 5, -pady => 5);
 
@@ -560,7 +632,7 @@ foreach my $inst (@insts)
 $box2->pack(-padx => 5, -pady => 5);
 $box1->pack(-fill => "x");
 
-### Create the pattern-match item selector
+# Create the pattern-match item selector
 # Callback for the pattern-match selector
 $sub = sub
    {
@@ -581,7 +653,7 @@ $sub = sub
    &$button_sub();
    };
 
-$box1 = $dialog->Frame(-borderwidth => 1, -relief => "raised");
+$box1 = $tab->Frame(-borderwidth => 1, -relief => "raised");
 $box1->Label(-text => "Specify a pattern to select multiple items")
    ->pack(-padx => 5, -pady => 5);
 $box2 = $box1->Frame(-borderwidth => 0);
@@ -596,20 +668,27 @@ $box2->Button(-text => "Select", -command => $sub)
 $box2->pack(-padx => 5, -pady => 5);
 $box1->pack(-fill => "x");
 
-### Create the "Select log scaling" checkbox
+# Create the "Select log scaling" checkbox
 $scale = "";
-$box1 = $dialog->Frame(-borderwidth => 1, -relief => "raised");
+$box1 = $tab->Frame(-borderwidth => 1, -relief => "raised");
 $box1->Checkbutton(-text => "Logarithmic scaling?", -variable => \$scale,
                    -offvalue => "", -onvalue => "log",
                    -highlightthickness => 0, -command => $button_sub)
    ->pack(-padx => 5, -pady => 5);
-$box1->pack(-fill => "x");
+$box1->pack(-fill => "both", -expand => 1);
 
-### Create the "Apply" button
-$box1 = $dialog->Frame(-borderwidth => 1, -relief => "raised");
+### Create the interval tab
+interval_tab($notebook, $graph, \$start, \$finish);
+$notebook->pack();
+
+### Create the buttons
+$box1 = $dialog->Frame(-borderwidth => 3, -relief => "raised");
+
+# Create the "Apply" button
 $sub = sub
    {
    plot_apply_cb($dialog, $graph, scale => $scale,
+                 start => $start, finish => $finish,
                  column => $sel_col, instances => [ keys(%sel_insts) ]);
    $print->configure(-state => "normal");
    $save->configure(-state => "normal");
@@ -618,21 +697,21 @@ $apply = $box1->Button(-text => "Apply", -command => $sub,
                        -state => "disabled")
    ->pack(-side => "left", -expand => 1, -padx => 5, -pady => 5);
 
-### Create the "Print" button
+# Create the "Print" button
 $print = $box1->Button(-text => "Print", -state => "disabled",
                        -command => sub { print_dialog($dialog, $graph); })
    ->pack(-side => "left", -expand => 1, -padx => 5, -pady => 5);
 
-### Create the "Save" button
+# Create the "Save" button
 $save = $box1->Button(-text => "Save", -state => "disabled",
                       -command => sub { save_dialog($dialog, $graph); })
    ->pack(-side => "left", -expand => 1, -padx => 5, -pady => 5);
 
-### Create the "Quit" button
+# Create the "Quit" button
 $box1->Button(-text => "Quit",
               -command => sub { $dialog->destroy() })
    ->pack(-side => "left", -expand => 1, -padx => 5, -pady => 5);
-$box1->pack(-fill => "x");
+$box1->pack(-fill => "both", -expand => 1);
 
 $dialog->Popup();
 $parent->Unbusy();
@@ -712,7 +791,7 @@ if (@ora)
    my $user = $Monitor{oracle_user};
    my $pass = $Monitor{oracle_pass};
    my $sid  = $Monitor{oracle_sid};
-   $user = "/" if (! $user);
+   $user .= '/' if ($user !~ /\/$/);
    $sid = '@' . $sid if ($sid);
    $cmd .= " oar:$user$pass$sid:" . join(",", @ora);
    }
@@ -1130,7 +1209,7 @@ foreach my $file (@ARGV)
    if (-f $file)
       {
       open_file($Main, $file);
-      $DatDir = dirname($file);
+      $DatDir = fast_abs_path(dirname($file));
       }
    }
 

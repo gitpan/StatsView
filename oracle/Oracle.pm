@@ -53,7 +53,7 @@ foreach my $monitor (@monitors)
    }
 
 # Start the data section
-$self->{fh}->print("Data\n\n");
+$self->{fh}->print("Data rate:  $self->{rate}\n\n");
 
 return(bless($self, $class));
 }

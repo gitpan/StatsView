@@ -1,8 +1,12 @@
 use strict;
 use IO::File;
+use IO::Dir;
 use File::Basename;
-use vars qw($VERSION);
-$VERSION='1.11';
+use POSIX qw(strftime);
+
+package StatsView::Graph;
+use vars qw($VERSION @Constructors);
+$VERSION="1.14";
 
 ################################################################################
 # Terminology:
@@ -43,9 +47,63 @@ $VERSION='1.11';
 #    m  = number of samples
 #    n  = number of data points per sample
 
-package StatsView::Graph;
+################################################################################
+# PRIVATE
 
+sub BEGIN
+{
+# Initialise the tmpfile index
 $StatsView::Graph::tmpfile = 1;
+
+# Search for and load in parser subclasses at run-time
+foreach my $dir (@INC)
+   {
+   my $gd = "$dir/StatsView/Graph";
+   next if (! -d $gd);
+   next if (! defined(my $dh = IO::Dir->new($gd)));
+   foreach my $g (grep(/\.pm$/, $dh->read()))
+      {
+      $g =~ s/\.pm//;
+      $g = "StatsView::Graph::$g";
+      my $ctor;
+      eval "require $g; \$ctor = sub { ${g}->new(\@_); };" || die($@);
+      push(@Constructors, $ctor);
+      }
+   $dh->close();
+   }
+}
+
+################################################################################
+# PRIVATE
+
+sub reinit($;$)
+{
+my ($self, $cat) = @_;
+
+# Set via define_cols method, called by child read method
+$self->{colindex}    = undef; # Hash of col name => data index
+$self->{coltype}     = undef; # Hash of col name => col type
+                              #    D=date, T=text, N=number, %=percentage, 0-100
+
+# Set by define_inst method, called by child read method
+$self->{instance}    = undef; # For 3-d data - hash of instance => gnuplot index
+$self->{index_3d}    = 0;     # A counter used to number 3d datasets
+
+# Set by child read method
+$self->{data}        = undef; # 2-d or 3-d array of data (see above for format)
+$self->{start}       = 0;     # Start time of samples
+$self->{interval}    = 0;     # Interval between samples
+$self->{finish}      = 0;     # Finish time of samples
+$self->{title}       = "";    # Title of graph
+
+# Set by define method
+$self->{plot_cat}    = $cat ? $cat : "none"; # Category of data to plot
+$self->{plot_cols}   = undef; # Column(s) to plot (2d=arrayref, 3d=scalar)
+$self->{plot_insts}  = undef; # Instance(s) to plot (2d=undef, 3d=arrayref)
+$self->{plot_scale}  = undef; # Log/Normal scale to be used for plot
+$self->{plot_start}  = undef; # Start time of plot
+$self->{plot_finish} = undef; # Finish time of plot
+}
 
 ################################################################################
 # PRIVATE
@@ -68,7 +126,8 @@ if (! $self->{tmpfile}{$cat})
       my $val = $sample->{value};
       if (@$val > 0)
          {
-         $out->print("$sample->{tstamp}\t", join("\t", @$val), "\n");
+         $out->print(strftime("%d/%m/%Y %T", gmtime($sample->{tstamp})), "\t",
+                     join("\t", @$val), "\n");
          $last_was_blank = 0;
          }
       elsif (! $last_was_blank)
@@ -115,7 +174,11 @@ if ($plot_type eq '%')
    }
 
 # Generate the plot command
-$self->{gnuplot}->print("plot ");
+$self->{gnuplot}->print("plot ['",
+        strftime("%d/%m/%Y %T", gmtime($self->{plot_start})),
+        "':'",
+        strftime("%d/%m/%Y %T", gmtime($self->{plot_finish})),
+        "'] ");
 my $not_first = 0;
 foreach my $col (@$cols)
    {
@@ -155,7 +218,8 @@ if (! $self->{tmpfile}{$cat})
          my $val = $sample->{value};
          if (@$val > 0)
             {
-            $out->print("$sample->{tstamp}\t", join("\t", @$val), "\n");
+            $out->print(strftime("%d/%m/%Y %T", gmtime($sample->{tstamp})),
+                        "\t", join("\t", @$val), "\n");
             $last_was_blank = 0;
             }
          elsif (! $last_was_blank)
@@ -190,7 +254,11 @@ if ($self->{coltype}{$col} eq '%')
    }
 
 # Generate the plot command
-$self->{gnuplot}->print("plot ");
+$self->{gnuplot}->print("plot ['",
+        strftime("%d/%m/%Y %T", gmtime($self->{plot_start})),
+        "':'",
+        strftime("%d/%m/%Y %T", gmtime($self->{plot_finish})),
+        "'] ");
 my $not_first = 0;
 foreach my $inst (@$insts)
    {
@@ -252,60 +320,61 @@ sub _save_csv($$)
 {
 my ($self, $file) = @_;
 
-my $cols = $self->{plot_cols};
-my $insts = $self->{plot_insts};
-my $date = $self->{date};
-
 my $csv = IO::File->new($file, "w") || die("Can't open $file: $!\n");
+my ($cols, $start, $finish) = @$self{qw(plot_cols plot_start plot_finish)};
 
 # 2-d data
 if (! defined($self->{instance}))
    {
-   die("No values to plot\n") if (@$cols == 0);
-
    $csv->print($self->get_title(), "\n\n");
    $csv->print("Time,", join(",", @$cols), "\n");
-   my @indices = @{$self->{colindex}}{@$cols};
    my $fmt = join(',', @{$self->{coltype}}{@$cols});
    $fmt =~ s/%/%s%%/g;
    $fmt =~ s/[DTN]/%s/g;
+   my @indices = @{$self->{colindex}}{@$cols};
    foreach my $sample (@{$self->{data}})
       {
-      $csv->printf("%s,$fmt\n", $sample->{tstamp},
+      next if ($sample->{tstamp} < $start);
+      last if ($sample->{tstamp} > $finish);
+      $csv->printf("%s,$fmt\n",
+                   strftime("%d/%m/%Y %T", gmtime($sample->{tstamp})),
                    @{$sample->{value}}[@indices]) if (@{$sample->{value}});
       }
    }
 # 3-d data
 else
    {
-   die("No values to plot\n") if (! defined($cols));
-   die("No items to plot\n") if (@$insts == 0);
-
-   my $index = @{$self->{colindex}}{$cols};
+   my $insts = $self->{plot_insts};
    my $fmt = join(',', ($self->{coltype}{$cols}) x @$insts);
    $fmt =~ s/%/%s%%/g;
    $fmt =~ s/[DTN]/%s/g;
 
    # Invert the data so that all data for a given time is accessible
+   my $first = 1;
    my %data;
-   foreach my $inst_name (@$insts)
+   my $index = @{$self->{colindex}}{$cols};
+   foreach my $inst_name (@{$self->{plot_insts}})
       {
       foreach my $sample (@{$self->{data}{$inst_name}})
          {
-         $data{$sample->{tstamp}}{$inst_name} = $sample->{value}[$index]
+         my $tstamp = $sample->{tstamp};
+         next if ($tstamp < $start);
+         last if ($tstamp > $finish);
+         $data{$tstamp}{$inst_name} = $sample->{value}[$index]
             if (@{$sample->{value}});
          }
+      $first = 0;
       }
 
    # Print out the data
    $csv->print($self->get_title(), " - $cols\n\n");
    $csv->print("Time,", join(",", @$insts), "\n");
-   foreach my $sample (@{$self->{tstamps}})
+   foreach my $tstamp (sort(keys(%data)))
       {
-      $csv->print("$date $sample");
+      $csv->print(strftime("%d/%m/%Y %T", gmtime($tstamp)));
       foreach my $inst_name (@$insts)
          {
-         my $value = $data{$sample}{$inst_name};
+         my $value = $data{$tstamp}{$inst_name};
          $csv->print(",", $value ? $value : "0");
          }
       $csv->print("\n");
@@ -332,54 +401,33 @@ $self->{tmpfile} = undef;
 ################################################################################
 # PROTECTED
 
-sub init($$)
+sub init($)
 {
 my ($class, $file) = @_;
 $class = ref($class) || $class;
 my $self =
    {
-   file       => $file,   # Filename the data is stored in
-   category   => undef,   # List of data categories in file, undef = none
-   colindex   => undef,   # Hash of col name => data index
-   coltype    => undef,   # Hash of col name => col type
-                          #    D=date, T=text, N=number, %=percentage, 0-100
-   instance   => undef,   # For 3-d data -
-                          #    hash of instance => gnuplot dataset index
-   data       => undef,   # 2-d or 3-d array of data (see above for format)
-   tstamps    => undef,   # Array of timestamps
-   date       => '',      # Date of sample
-   title      => '',      # Title of graph
-   gnuplot    => undef,   # Filehandle of gnuplot session
-   tmpfile    => undef,   # Names of gnuplot data files
-   index_3d   => 0,       # A counter used to number 3d datasets
-   plot_cat   => undef,   # Category of data to be plotted
-   plot_cols  => undef,   # Column(s) to be plotted (2d=arrayref, 3d=scalar)
-   plot_insts => undef,   # Instance(s) to be plotted (2d=undef, 3d=arrayref)
-   plot_scale => undef,   # Log/Normal scale to be used for plot
+   # Set by base class
+   file      => $file,      # Filename the data is stored in
+   gnuplot   => undef,      # Filehandle of gnuplot session
+   tmpfile   => undef,      # Names of gnuplot data files
+
+   # Set by child new method
+   category    => undef,    # List of data categories in file, undef = none
    };
-die("$file does not exist\n") if (! -f $file);
-return(bless($self, $class));
+bless($self, $class);
+$self->reinit();
+return($self);
 }
 
 ################################################################################
 # PROTECTED
-# Must populate colindex, coltype, data and tstamps.  For 3-d data instance
-# must be populated as well
 
 sub read($;$)
 {
 my ($self, $cat) = @_;
 my $class = ref($self) || $self;
-$self->{colindex}   = undef;
-$self->{coltype}    = undef;
-$self->{instance}   = undef;
-$self->{data}       = undef;
-$self->{tstamps}    = undef;
-$self->{index_3d}   = 0;
-$self->{plot_cat}   = $cat ? $cat : "none";
-$self->{plot_cols}  = undef;
-$self->{plot_insts} = undef;
-$self->{plot_scale} = undef;
+$self->reinit($cat);
 }
 
 ################################################################################
@@ -398,60 +446,41 @@ foreach $col (@$colname) { $self->{coltype}{$col} = shift(@$coltype); }
 }
 
 ################################################################################
+# PROTECTED
+
+sub define_inst($$)
+{
+my ($self, $inst) = @_;
+$self->{instance}{$inst} = $self->{index_3d}++
+   if (! exists($self->{instance}->{$inst}));
+}
+
+################################################################################
 # PUBLIC Static method
 
 sub new($)
 {
 my ($class, $file) = @_;
+$class = ref($class) || $class;
 
-# Chack for nonexistent or empty files
+# Check for nonexistent or empty files
 die("$file doesn't exist\n") if (! -e $file);
 die("$file is empty\n") if (-z $file);
+my $fh = IO::File->new($file, "r") || die("Can't open $file: $!\n");
 
-# Binary files must be Sar files
-if (-B $file)
+# Call each constructor in turn until one returns an object
+my $self;
+foreach my $ctor (@Constructors)
    {
-   return(StatsView::Graph::Sar->new($file));
-   }
-# Otherwise, take a peek at the first non-whitespace line
-else
-   {
-   my $fh = IO::File->new($file, "r") || die("Can't open $file: $!\n");
-   my $line;
-   while (defined($line = $fh->getline()) && $line =~ /^\s*$/) { }
-
-   if ($line =~ /^SunOS.*Generic/)
+   if ($self = &$ctor($file, $fh))
       {
       $fh->close();
-      return(StatsView::Graph::Sar->new($file));
+      return($self);
       }
-   elsif ($line =~ /Start:.*Interval:/i)
-      {
-      while (defined($line = $fh->getline()) && $line =~ /^\s*$/) { }
-      if ($line =~ /extended\s*(device|disk)\s*statistics/i)
-         {
-         return(StatsView::Graph::Iostat->new($file));
-         }
-      elsif ($line =~ /Procs\s+memory\s+page\s+disk\s+faults\s+cpu/i)
-         {
-         return(StatsView::Graph::Vmstat->new($file));
-         }
-      }
-   elsif ($line =~ /OPERATIONS\s+BLOCKS/)
-      {
-      return(StatsView::Graph::Vxstat->new($file));
-      }
-   elsif ($line =~ /Oracle\s+Statistics\s+File/)
-      {
-      return(StatsView::Graph::Oracle->new($file));
-      }
-   elsif ($line =~ /iost\+\s+started/)
-      {
-      return(StatsView::Graph::Iost->new($file));
-      }
-   $fh->close();
-   die("Unrecognised file $file\n");
+   $fh->seek(0, 0);
    }
+$fh->close();
+die("Unrecognised file $file\n");
 }
 
 ################################################################################
@@ -463,6 +492,14 @@ my ($self, %arg) = @_;
 
 # Sort out the required scale
 $self->{plot_scale} = $arg{scale} || "normal";
+delete($arg{scale});
+
+# Sort out the range of the plot
+$self->{plot_start} = $arg{start} || $self->{start};
+$self->{plot_finish} = $arg{finish} || $self->{finish};
+die("Plot start time later than or equal to start time\n")
+   if ($self->{plot_start} >= $self->{plot_finish}); 
+delete(@arg{qw(start finish)});
 
 # Check we are plottable
 die("No data to plot\n") if (! defined($self->{data}));
@@ -474,6 +511,7 @@ if (! $self->{instance})
    {
    die("No columns to plot\n") if (! defined($arg{columns}));
    $self->{plot_cols}  = $arg{columns};
+   delete($arg{columns});
    $self->{plot_insts} = undef;
    }
 # 3d data - expect 1 column and a set of instances
@@ -483,13 +521,17 @@ else
    die("No instances to plot\n") if (! @{$arg{instances}});
    $self->{plot_cols}  = $arg{column};
    $self->{plot_insts} = $arg{instances};
+   delete(@arg{qw(column instances)});
    }
+
+# Check there are no invalid arguments left
+die("Invalid arguments " . join(", ", keys(%arg)) . "\n") if (keys(%arg));
 
 # Start gnuplot, if required
 if (! $self->{gnuplot})
    {
    $self->{gnuplot} = IO::File->new("| exec gnuplot -title '" .
-#                                    $self->get_title() . "' 2>/dev/null")
+#                                   $self->get_title() . "' 2>/dev/null")
                                     $self->get_title() . "'")
       || die("Can't run gnuplot: $!\n");
    $self->{gnuplot}->autoflush(1);
@@ -616,10 +658,10 @@ return(sort(keys(%{$self->{instance}})));
 ################################################################################
 # PUBLIC
 
-sub get_timestamps($)
+sub get_times($)
 {
 my ($self) = @_;
-return(@{$self->{tstamps}});
+return(@{$self}{qw(start interval finish)});
 }
 
 ################################################################################
@@ -630,7 +672,7 @@ sub get_title($)
 my ($self) = @_;
 return($self->{title} . "  " .
        File::Basename::basename($self->{file}) . "  " .
-       $self->{date});
+       strftime("%d/%m/%Y", gmtime($self->{start})));
 }
 
 ################################################################################
@@ -651,15 +693,6 @@ sub get_file($)
 my ($self) = @_;
 return($self->{file});
 }
-
-################################################################################
-
-use StatsView::Graph::Sar;
-use StatsView::Graph::Iostat;
-use StatsView::Graph::Vmstat;
-use StatsView::Graph::Vxstat;
-use StatsView::Graph::Oracle;
-use StatsView::Graph::Iost;
 
 ################################################################################
 1;
@@ -695,15 +728,15 @@ the GD GIF library.
 
 =head1 TERMINOLOGY
 
-category   - A class of related data, for applications that collect more than
-             one type of data at a time
-             eg for sar, CPU utilisation, Disk IO, Paging etc
-column     - A time-series of data, eg %busy 
-instance   - An entity for which data is collected
-             eg disk drive, Oracle tablespace
-sample     - All data collected at a given point in time
-data point - An individual statistic value
-             eg reads/sec for disk c0t0d0 at 10:35:04
+ category   - A class of related data, for applications that
+              collect more than one type of data at a time
+              eg for sar, CPU utilisation, Disk IO etc
+ column     - A time-series of data, eg %busy 
+ instance   - An entity for which data is collected
+              eg disk drive, Oracle tablespace
+ sample     - All data collected at a given point in time
+ data point - An individual statistic value
+              eg reads/sec for disk c0t0d0 at 10:35:04
 
 Data of 2 types can be displayed by StatsView - 2d or 3d.  2d data does not
 have any instance information, eg for CPU usage, total idle, usr, sys, wio.
@@ -788,7 +821,8 @@ parameter pairs.  Allowed parameters are:
    file        => <output filename>
    format      => "csv"          comma-separated text
                 | "postscript"   postscript format
-                | "cgm"          Computer Graphics Metafile - For M$ Word, etc
+                | "cgm"          Computer Graphics Metafile
+                                 - For M$ Word, etc
                 | "mif"          Framemaker
                 | "gif"          requires gnuplot built with GD support
 
@@ -807,9 +841,11 @@ This returns a list of the available columns.
 This returns a list of the available instances, for 3d data.  For 2d data it 
 will return an empty list.
 
-=head2 get_timestamps()
+=head2 get_times()
 
-This returns a list of all the timestamps in the data.
+This returns a 3 element list of (start time, sampling interval, end time).
+Start and end time are expressed as a standard Unix 32-bit time value, and
+the sampling interval is expressed in seconds.
 
 =head2 get_title()
 

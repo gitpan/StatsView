@@ -1,7 +1,7 @@
 ################################################################################
 
 use strict;
-use POSIX qw(mktime strftime);
+use POSIX qw(mktime);
 use StatsView::Graph;
 package StatsView::Graph::Vxstat;
 @StatsView::Graph::Vxstat::ISA = qw(StatsView::Graph);
@@ -12,39 +12,48 @@ package StatsView::Graph::Vxstat;
 
 ################################################################################
 
-sub new()
+sub new($$$)
 {
-my ($class, $file) = @_;
+my ($class, $file, $fh) = @_;
 $class = ref($class) || $class;
-my $self = $class->SUPER::init($file);
-
-# Figure out what type of file we have
-my $vxstat = IO::File->new($file, "r") || die("Can't open $file: $!\n");
-$self->{title} = "Veritas Statistics";
-my $line;
 
 # Look for the header lines
-while (defined($line = $vxstat->getline()) && $line =~ /^\s*$/) { }
-$line =~ /OPERATIONS\s+BLOCKS\s+AVG TIME\(ms\)/
-   || die("$self->{file} is not a vxstat file (1)\n");
-$line = $vxstat->getline();
+my $line;
+while (defined($line = $fh->getline()) && $line =~ /^\s*$/) { }
+$line =~ /OPERATIONS\s+BLOCKS\s+AVG TIME\(ms\)/ || return(undef);
+$line = $fh->getline();
 $line =~ /TYP NAME\s+READ\s+WRITE\s+READ\s+WRITE\s+READ\s+WRITE/
-   || die("$self->{file} is not a vxstat file (2)\n");
+   || return(undef);
 
-# Find the first 2 timestamps and calculate the interval
-while (defined($line = $vxstat->getline()) && $line !~ /\d\d:\d\d:\d\d/) { }
-my @d = split(/\s+|:/, $line);
-$d[1] = $StatsView::Graph::Vxstat::m2n{$d[1]};
-$d[6] -= 1900;
-my $t1 = POSIX::mktime(@d[5,4,3,2,1,6]);
-while (defined($line = $vxstat->getline()) && $line !~ /\d\d:\d\d:\d\d/) { }
-@d = split(/\s+|:/, $line);
-$d[1] = $StatsView::Graph::Vxstat::m2n{$d[1]};
-$d[6] -= 1900;
-my $t2 = POSIX::mktime(@d[5,4,3,2,1,6]);
-$self->{interval} = $t2 - $t1;
+# Find the first timestamp & figure out the format
+my $self = $class->SUPER::init($file);
+while (defined($line = $fh->getline()) && $line !~ /\d\d:\d\d:\d\d/) { }
+my @l = split(/\s+|:/, $line);
+if (@l == 7)
+   {
+   $self->{parsedate} = sub
+      {
+      my @d = split(/\s+|:/, $_[0]);
+      $d[1] = $StatsView::Graph::Vxstat::m2n{substr($d[1], 0, 3)};
+      $d[6] -= 1900;
+      return(POSIX::mktime(@d[5,4,3,2,1,6]));
+      };
+   }
+elsif (@l == 9)
+   {
+   $self->{parsedate} = sub
+      {
+      my @d = split(/\s+|:/, $_[0]);
+      $d[2] = $StatsView::Graph::Vxstat::m2n{substr($d[2], 0, 3)};
+      $d[3] -= 1900;
+      if ($d[4] == 12) { $d[4] -= 12 if ($d[7] =~ /AM/i); }
+      else { $d[4] += 12 if ($d[7] =~ /PM/i); }
+      return(POSIX::mktime(@d[6,5,4,1,2,3]));
+      };
+   }
+else
+   { return(undef); }
 
-$vxstat->close();
 return($self);
 }
 
@@ -58,15 +67,16 @@ $self->SUPER::read();
 # Open the file
 my $vxstat = IO::File->new($self->{file}, "r")
    || die("Can't open $self->{file}: $!\n");
-my $line;
+$self->{title} = "Veritas Statistics";
 
 # Look for the header lines
+my $line;
 while (defined($line = $vxstat->getline()) && $line =~ /^\s*$/) { }
 $line =~ /OPERATIONS\s+BLOCKS\s+AVG TIME\(ms\)/
-   || die("$self->{file} is not a vxstat file (3)\n");
+   || die("$self->{file} is not a vxstat file (1)\n");
 $line = $vxstat->getline();
 $line =~ /TYP NAME\s+READ\s+WRITE\s+READ\s+WRITE\s+READ\s+WRITE/
-   || die("$self->{file} is not a vxstat file (4)\n");
+   || die("$self->{file} is not a vxstat file (2)\n");
 
 # Define the column types - N = numeric, % = percentage
 $self->define_cols(['Read op/sec', 'Write op/sec',
@@ -76,18 +86,29 @@ $self->define_cols(['Read op/sec', 'Write op/sec',
 
 # Skip to the start of the second timestamp -
 # the data after the first is info from the last reboot to the present
+my $parsedate = $self->{parsedate};
 while (defined ($line = $vxstat->getline()) && $line !~ /\d\d:\d\d:\d\d/) { }
-die("$self->{file} is not a vxstat file (5)\n") if (! $line);
-while (defined ($line = $vxstat->getline()) && $line !~ /^\s*$/) { }
-die("$self->{file} is not a vxstat file (6)\n") if (! $line);
+die("$self->{file} is not a vxstat file (3)\n") if (! $line);
+my $first_ts = &$parsedate($line);
 
-my $interval = $self->{interval};
+while (defined ($line = $vxstat->getline()) && $line !~ /^\s*$/) { }
+die("$self->{file} is not a vxstat file (4)\n") if (! $line);
+
+my $interval;
+my $tstamp;
+my $first = 1;
 while (defined($line = $vxstat->getline()))
    {
-   my @d = split(/\s+|:/, $line);
-   $d[1] = $StatsView::Graph::Vxstat::m2n{$d[1]} + 1;
-   my $tstamp = sprintf("%.2d/%.2d/%.4d %.2d:%.2d:%.2d", @d[2,1,6,3,4,5]);
-   push(@{$self->{tstamps}}, $tstamp);
+   # Parse the timestamp
+   $tstamp = &$parsedate($line);
+
+   # If this is the first sample, store the start time
+   if ($first)
+      {
+      $self->{start} = $tstamp;
+      $interval = $self->{interval} = $tstamp - $first_ts;
+      $first = 0;
+      }
 
    # Read the data
    while (defined($line = $vxstat->getline()) && $line !~ /^\s*$/)
@@ -104,6 +125,7 @@ while (defined($line = $vxstat->getline()))
          if (! exists($self->{instance}->{$inst}));
       }
    }
+$self->{finish} = $tstamp;
 $vxstat->close();
 }
 
