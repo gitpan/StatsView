@@ -3,9 +3,9 @@ use POSIX qw(uname);
 
 # Check this is Solaris
 my ($sys, $rel) = (POSIX::uname())[0,2];
-if ($sys ne "SunOS" || $rel !~ /^(5.5.1|5.6|5.7)$/)
+if ($sys ne "SunOS" || $rel !~ /^(5.5.1|5.6|5.7|5.8)$/)
    {
-   warn("WARNING: StatsView has only been tested on 2.5.1, 2.6 & 2.7\n",
+   warn("WARNING: StatsView has only been tested on 2.5.1, 2.6, 2.7 & 2.8\n",
         "It probably won't work on $sys $rel\n\n");
    }
 
@@ -16,21 +16,19 @@ if (! grep(-x "$_/gnuplot", split(":", $ENV{PATH})))
         "StatsView won't work unless you have GNUPlot installed.\n",
         "A copy can be found in the gnuplot_src subdirectory\n\n");
    }
-else
+my $hdr = `gnuplot 2>&1 <<EOF\nshow version\nEOF`;
+my ($ver) = $hdr =~ /version\s*([\d.]*)/;
+my ($plev) = $hdr =~ /patchlevel\s*(.*)/;
+if ($ver < 3.6 && $plev !~ /beta/)
    {
-   my $hdr = `gnuplot 2>&1 <<EOF\nshow version\nEOF`;
-   my ($ver) = $hdr =~ /version\s*([\d.]*)/;
-   if ($ver < 3.7)
-      {
-      warn("WARNING: Incorrect version of GNUPlot found\n",
-           "StatsView won't work unless you have GNUPlot 3.7 installed.\n",
+   warn("WARNING: Incorrect version of GNUPlot found\n",
+        "StatsView won't work unless you have GNUPlot beta 3.6 installed.\n",
         "A copy can be found in the gnuplot_src subdirectory\n\n");
-      }
    }
 
 WriteMakefile(
    'NAME'         => 'StatsView',
    'VERSION_FROM' => 'scripts/sv',
-   'DIR'          => [ 'graph', 'oracle' ],
+   'DIR'          => [ 'Graph', 'Oracle' ],
    'EXE_FILES'    => [ 'scripts/sv',  'scripts/svdc', 'scripts/oar' ],
 );

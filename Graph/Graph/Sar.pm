@@ -235,7 +235,8 @@ my $line;
 while (defined ($line = $self->getline($sar)) && $line !~ /^SunOS/) { }
 die("$self->{file} is not a sar file (1)\n") if (! $line);
 my ($M, $D, $Y) = split(/\//, (split(' ', $line))[5]);
-$Y -= 1900 if ($Y > 100);
+if ($Y >= 100) { $Y -= 1900; }
+elsif ($Y <= 50) { $Y += 100; }
 $M--;
 
 # Look for the header line & get a list of column names
@@ -337,7 +338,8 @@ my $line;
 while (defined ($line = $self->getline($sar)) && $line !~ /^SunOS/) { }
 die("$self->{file} is not a sar file (3)\n") if (! $line);
 my ($M, $D, $Y) = split(/\//, (split(' ', $line))[5]);
-$Y -= 1900 if ($Y > 100);
+if ($Y >= 100) { $Y -= 1900; }
+elsif ($Y <= 50) { $Y += 100; }
 $M--;
 
 # Look for the headers

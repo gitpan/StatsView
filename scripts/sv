@@ -3,7 +3,7 @@
 use strict;
 use File::Basename qw(basename dirname);
 use POSIX qw(:sys_wait_h strftime);
-use Tk;
+use Tk 8.0;
 use Tk::Dialog;
 use Tk::FileSelect;
 use Tk::NoteBook;
@@ -15,8 +15,30 @@ use StatsView::Graph;
 ################################################################################
 
 package main;
-use vars qw($VERSION $Main %Monitor $DatDir $SaveDir);
-$VERSION = "1.2";
+use vars qw($VERSION $Main %Monitor $DatDir $SaveDir
+            $OpenFileTypes $SaveFileTypes);
+$VERSION = "1.3";
+$OpenFileTypes =
+   [
+      [ All     => "*"       ],
+      [ iostat  => ".iostat" ],
+      [ "iost+" => ".iost+"  ],
+      [ mpstat  => ".mpstat" ],
+      [ sar     => ".sar"    ],
+      [ vmstat  => ".vmstat" ],
+      [ vxstat  => ".vxstat" ],
+      [ Oracle  => ".oar"    ],
+   ];
+
+$SaveFileTypes =
+   [
+      [ CSV        => ".csv" ],
+      [ CGM        => ".cgm" ],
+      [ MIF        => ".mif" ],
+      [ GIF        => ".gif" ],
+      [ Postscript => ".ps"  ],
+      [ All        => "*"    ],
+   ];
 
 ################################################################################
 
@@ -51,7 +73,7 @@ my ($parent) = @_;
 my $msg = <<EOM;
 
                            StatsView version $VERSION
-                        Copyright (c) 1999 Alan Burlison
+                        Copyright (c) 2000 Alan Burlison
                             Alan.Burlison\@uk.sun.com
 
  You may distribute under the terms of either the GNU General Public License
@@ -208,7 +230,7 @@ sub save_browse_cb($$$)
 my ($parent, $title, $file) = @_;
 
 $parent->Busy();
-if ($file)
+if (defined($file))
    {
    $SaveDir = dirname($file);
    $file = basename($file);
@@ -222,7 +244,7 @@ $file = $parent->getSaveFile(-initialdir  => $SaveDir,
                              -initialfile => $file,
                              -title       => $title);
 $parent->Unbusy();
-if ($file) { $SaveDir = dirname($file); }
+if (defined($file)) { $SaveDir = dirname($file); }
 return($file);
 }
 
@@ -767,7 +789,7 @@ else
       if ($stat == 0)
          { $Monitor{status} = "Monitoring completed\nsucessfully"; }
       elsif ($stat == 1)
-         { $Monitor{status} = "Monitoring\ncancelled"; }
+         { $Monitor{status} = "Monitoring cancelled\n"; }
       elsif ($stat == 2)
          { $Monitor{status} = "Monitoring failed to start\n"; }
       elsif ($stat == 3)
@@ -1128,10 +1150,7 @@ if (@cats == 0)
    }
 else
    {
-   # For Tk 800.XXX
    my $menu = $parent->Menu(-type => "tearoff");
-   # For Tk 4
-   #my $menu = $parent->Menu(-tearoff => 0, -transient => 0);
    $menu->title(basename($file));
    foreach my $cat (@cats)
       {
@@ -1163,7 +1182,9 @@ my ($parent) = @_;
 
 $parent->Busy();
 $DatDir = cwd() if (! $DatDir);
-my $file = $parent->getOpenFile(-initialdir => $DatDir);
+my $file = $parent->getOpenFile(-initialdir       => $DatDir,
+                                -filetypes        => $OpenFileTypes,
+                                -defaultextension => "*");
 $parent->Unbusy();
 return if (! $file);
 $DatDir = dirname($file);
@@ -1191,27 +1212,28 @@ if (@ARGV == 0 || $ARGV[0] ne "-q")
 else
    { shift(@ARGV); }
 
-my $menubar = $Main->Frame(-relief => "raised", -borderwidth => 3);
-$menubar->pack(-side => "top", -fill => "x");
+# Create the menubar & cascades
+my $menubar = $Main->Menu();
+$Main->configure(-menu => $menubar);
 
-my $menubar_file = $menubar->Menubutton(-text => "File", -underline => 0);
-$menubar_file->command(-label => "Open File ...", -underline => 0,
+my $menubar_file = $menubar->cascade(-label => "~File");
+$menubar_file->command(-label => "~Open File ...",
                        -command => sub { open_dialog($Main); });
 $menubar_file->separator();
-$menubar_file->command( -label => "Exit", -underline => 1,
+$menubar_file->command( -label => "~Exit",
                         -command => sub { Tk::exit(0); });
-$menubar_file->pack(-side => "left");
 
-my $menubar_monitor = $menubar->Menubutton(-text => "Monitor", -underline => 0);
+my $menubar_monitor = $menubar->cascade(-label => "~Monitor");
 $Monitor{start} =
-   $menubar_monitor->command(-label => "Start ...", -underline => 2,
+   $menubar_monitor->command(-label => "St~art ...",
                              -command => sub { start_monitor($Main); });
 $Monitor{stop} =
-   $menubar_monitor->command(-label => "Stop ...", -underline => 3,
+   $menubar_monitor->command(-label => "St~op ...",
                              -command => sub { stop_monitor($Main); },
                              -state => "disabled");
-$menubar_monitor->pack(-side => "left");
-$Monitor{status} = "Monitoring\nnot running";
+
+# Put up the status message
+$Monitor{status} = "Monitoring not running\n";
 $Main->Label(-textvariable => \$Monitor{status})->pack(-pady => 3);
 
 foreach my $file (@ARGV)

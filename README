@@ -1,4 +1,4 @@
-StatsView Version 1.2
+StatsView Version 1.3
 =====================
 
 DESCRIPTION
@@ -31,7 +31,7 @@ PREREQUISITES
 
 StatsView is written in Perl5, using the Perl Tk extension library.  I recommend
 that you use perl5.005_03 or later, and Tk800.014 or later, as StatsView has
-been tested with these versions.  You will also need the Tl::GBARR add-on
+been tested with these versions.  You will also need the Tk::GBARR add-on
 package for this version.
 
 The graphing is done with gnuplot, and version 3.7 or later is required -
@@ -47,7 +47,7 @@ INSTALLATION
 COPYRIGHT AND DISCLAIMER
 ------------------------
 
-Copyright (c) 1999 Alan Burlison
+Copyright (c) 2000 Alan Burlison
 
 You may distribute under the terms of either the GNU General Public License
 or the Artistic License, as specified in the Perl README file, with the
